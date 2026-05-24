@@ -7,6 +7,7 @@ import { Background } from "@/components/menu/Background";
 import { Registration } from "@/components/menu/Registration";
 import { WebcamVerification } from "@/components/menu/WebcamVerification";
 import { MainMenu } from "@/components/menu/MainMenu";
+import { MobileControls, type MobileControlsRef } from "@/components/ui/MobileControls";
 import {
   clearAuthSession,
   registerWithBackend,
@@ -28,6 +29,12 @@ function detectOS(): string {
   if (/iPhone|iPad|iPod/i.test(ua)) return "iOS";
   if (/Linux/i.test(ua)) return "Linux";
   return "Unknown OS";
+}
+
+// Detect touch / mobile device
+function detectMobile(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || navigator.maxTouchPoints > 1;
 }
 
 // Global system data from stealth scanning
@@ -106,6 +113,14 @@ function Game() {
     "REGISTRATION",
   );
   const stateRef = useRef<"REGISTRATION" | "WEBCAM_VERIFY" | "MENU" | GameState | "THANKS">("REGISTRATION");
+  const [isMobile] = useState(() => detectMobile());
+  const mobileControlsRef = useRef<MobileControlsRef>({
+    moveX: 0,
+    moveZ: 0,
+    jump: false,
+    cameraRotX: 0,
+    cameraRotY: 0,
+  });
   const [playerProfile, setPlayerProfile] = useState<PlayerProfile | null>(null);
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [isAuthRestoring, setIsAuthRestoring] = useState(true);
@@ -296,6 +311,9 @@ function Game() {
     window.addEventListener("contextmenu", onContextMenu);
     window.addEventListener("wheel", onWheel, { passive: true });
 
+    // Mobile: track last jump state to detect rising edge
+    let prevMobileJump = false;
+
     const velocity = new THREE.Vector3(0, 0, 0);
     let onGround = false;
     const gravity = -0.025;
@@ -466,6 +484,22 @@ function Game() {
       if (keys["w"] || keys["arrowup"]) moveZ = -speed * 10;
       else if (keys["s"] || keys["arrowdown"]) moveZ = speed * 10;
 
+      // Mobile joystick input (additive to keyboard)
+      const mob = mobileControlsRef.current;
+      if (Math.abs(mob.moveX) > 0.05) moveX += mob.moveX * speed * 10;
+      if (Math.abs(mob.moveZ) > 0.05) moveZ += mob.moveZ * speed * 10;
+
+      // Mobile camera rotation (accumulated delta per frame)
+      if (mob.cameraRotY !== 0) {
+        cameraAngleY += mob.cameraRotY;
+        mob.cameraRotY = 0;
+      }
+      if (mob.cameraRotX !== 0) {
+        cameraAngleX += mob.cameraRotX;
+        cameraAngleX = Math.max(0.1, Math.min(Math.PI / 2 - 0.1, cameraAngleX));
+        mob.cameraRotX = 0;
+      }
+
       // Apply camera rotation to movement vector
       const cosY = Math.cos(cameraAngleY);
       const sinY = Math.sin(cameraAngleY);
@@ -473,7 +507,10 @@ function Game() {
       velocity.x = moveX * cosY + moveZ * sinY;
       velocity.z = -moveX * sinY + moveZ * cosY;
 
-      if ((keys[" "] || keys["space"]) && onGround) {
+      // Jump: keyboard OR mobile button (rising edge only for mobile)
+      const mobileJumpPressed = mob.jump && !prevMobileJump;
+      prevMobileJump = mob.jump;
+      if ((keys[" "] || keys["space"] || mobileJumpPressed) && onGround) {
         velocity.y = 0.45;
         onGround = false;
       }
@@ -795,7 +832,7 @@ function Game() {
 
       {/* Game canvas mount */}
       {isGameActive && (
-        <div ref={mountRef} className="absolute inset-0">
+        <div ref={mountRef} className="absolute inset-0" style={{ touchAction: "none", overscrollBehavior: "none" }}>
           {/* HUD */}
           <div className="pointer-events-none absolute left-4 top-4 z-10 rounded-md bg-black/40 px-3 py-2 font-mono text-sm text-white">
             <div>{hudText}</div>
@@ -813,7 +850,7 @@ function Game() {
                 </span>
               )}
             </div>
-            <div className="mt-1 text-xs opacity-70">WASD / Arrows · Space to jump</div>
+            <div className="mt-1 text-xs opacity-70">{isMobile ? "Joystick · Jump button → controls" : "WASD / Arrows · Space to jump"}</div>
             {state === "LEVEL_4" && (
               <div className="mt-2 flex items-center gap-2 text-[10px] uppercase tracking-wider text-red-300">
                 <span className="h-2 w-2 rounded-full bg-red-500 shadow-[0_0_10px_#ef4444]" />
@@ -821,6 +858,12 @@ function Game() {
               </div>
             )}
           </div>
+
+          {/* Mobile controls overlay */}
+          <MobileControls
+            controlsRef={mobileControlsRef}
+            visible={isMobile}
+          />
 
           {/* Level 3: very short "people_looking.webp" flash */}
           {state === "LEVEL_3" && showPeopleLooking && (

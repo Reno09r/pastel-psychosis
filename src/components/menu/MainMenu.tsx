@@ -473,8 +473,7 @@ export function MainMenu({ profile, authToken, onStartGame, onReset }: MainMenuP
                 <p>Level 3 initiates dimensional layout collapse. Watch step.</p>
                 <p>Level 5 triggers active host registry leak. Do not close browser.</p>
                 <p className="text-sky-300 font-bold border-b border-sky-500/20 pt-1 pb-1">--- CREDITS ---</p>
-                <p>Produced by: The Psychosis Evaluation Team</p>
-                <p>Lead Engineer: Antigravity AI Pair</p>
+                <p>Produced by: Buken Rauan</p>
                 <p>Visual Aesthetics: Premium OKLCH Glassmorphism</p>
                 <p>3D Spatial Core: Three.js isometric rasterizer</p>
                 <p>State Manager: TanStack Router Engine</p>
