@@ -103,6 +103,8 @@ function Game() {
   const [logs, setLogs] = useState<string[]>([]);
   const [hudText, setHudText] = useState("Level 1 — Collect the stars ★");
   const [collected, setCollected] = useState(0);
+  const [levelTransition, setLevelTransition] = useState(false);
+  const [showPeopleLooking, setShowPeopleLooking] = useState(false);
 
   // Survey state
   const [collapse, setCollapse] = useState(false);
@@ -162,8 +164,8 @@ function Game() {
     const eyeMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
     const eyeL = new THREE.Mesh(eyeGeo, eyeMat);
     const eyeR = new THREE.Mesh(eyeGeo, eyeMat);
-    eyeL.position.set(-0.2, 0.15, 0.51);
-    eyeR.position.set(0.2, 0.15, 0.51);
+    eyeL.position.set(0.2, 0.15, 0.51);
+    eyeR.position.set(-0.2, 0.15, 0.51);
     player.add(eyeL, eyeR);
 
     // Platforms
@@ -173,7 +175,7 @@ function Game() {
     // Stars
     const stars: THREE.Mesh[] = [];
     const spikes: THREE.Mesh[] = [];
-    const eyes: THREE.Mesh[] = [];
+    const eyes: THREE.Object3D[] = [];
 
     // Build layout
     buildLevel(stateRef.current as GameState, scene, ambient, dir, platforms, spikes, eyes);
@@ -274,6 +276,22 @@ function Game() {
     let collapseStarted = false;
     let dead = false;
     let collectedCount = 0;
+    let peopleLookingTimeout: number | null = null;
+    let peopleLookingHideTimeout: number | null = null;
+
+    const transitionTo = (
+      nextState: GameState | "SURVEY",
+      waitBeforeFade = 0,
+      fadeDuration = 900,
+    ) => {
+      window.setTimeout(() => {
+        setLevelTransition(true);
+        window.setTimeout(() => {
+          setState(nextState);
+          window.setTimeout(() => setLevelTransition(false), 300);
+        }, fadeDuration);
+      }, waitBeforeFade);
+    };
 
     // Resize
     const onResize = () => {
@@ -293,6 +311,22 @@ function Game() {
         document.title = phrases[Math.floor(Math.random() * phrases.length)];
         window.setTimeout(() => (document.title = "Level 3"), 120);
       }, 1800);
+
+      // Random "people_looking.webp" flicker every 5–10s for 0.05s
+      const schedulePeopleLooking = () => {
+        const delay = 5000 + Math.random() * 5000; // 5-10 seconds
+        peopleLookingTimeout = window.setTimeout(() => {
+          if (stateRef.current !== "LEVEL_3") return;
+
+          setShowPeopleLooking(true);
+          peopleLookingHideTimeout = window.setTimeout(() => {
+            setShowPeopleLooking(false);
+          }, 50);
+
+          schedulePeopleLooking();
+        }, delay);
+      };
+      schedulePeopleLooking();
     }
 
     // Level 4 random knocking sound
@@ -374,24 +408,17 @@ function Game() {
       if (dead) return;
       dead = true;
       triggerShake();
-      // fade canvas
-      renderer.domElement.style.transition = "opacity 1.2s ease, filter 1.2s ease";
-      renderer.domElement.style.filter = "brightness(0)";
-      renderer.domElement.style.opacity = "0";
-      window.setTimeout(() => {
-        // advance state machine
-        if (stateRef.current === "LEVEL_5") {
-          setState("SURVEY");
-        } else if (stateRef.current === "LEVEL_4") {
-          setState("LEVEL_5");
-        } else if (stateRef.current === "LEVEL_3") {
-          setState("LEVEL_4");
-        } else if (stateRef.current === "LEVEL_2") {
-          setState("LEVEL_3");
-        } else {
-          setState("LEVEL_2");
-        }
-      }, 1300);
+      if (stateRef.current === "LEVEL_5") {
+        transitionTo("SURVEY");
+      } else if (stateRef.current === "LEVEL_4") {
+        transitionTo("LEVEL_5");
+      } else if (stateRef.current === "LEVEL_3") {
+        transitionTo("LEVEL_4");
+      } else if (stateRef.current === "LEVEL_2") {
+        transitionTo("LEVEL_3");
+      } else {
+        transitionTo("LEVEL_2");
+      }
     };
 
     let raf = 0;
@@ -501,7 +528,7 @@ function Game() {
         if (collectedCount >= 5 && !dead) {
           dead = true;
           setHudText("Loading Level 2...");
-          window.setTimeout(() => setState("LEVEL_2"), 1500);
+          transitionTo("LEVEL_2", 600);
         }
       }
 
@@ -515,7 +542,7 @@ function Game() {
         if (collectedCount >= 5 && !dead) {
           dead = true;
           setHudText("Something feels wrong...");
-          window.setTimeout(() => setState("LEVEL_3"), 1500);
+          transitionTo("LEVEL_3", 600);
         }
       }
 
@@ -525,20 +552,32 @@ function Game() {
           collapseStarted = true;
           setHudText("...");
           platforms.forEach((p) => (p.falling = true));
-          window.setTimeout(() => setState("LEVEL_4"), 2500);
+          transitionTo("LEVEL_4", 1500);
         }
       }
 
       // Level 4 eyes look at player
       if (stateRef.current === "LEVEL_4") {
+        const now = performance.now();
         for (const eye of eyes) {
+          const base = eye.userData.basePosition as THREE.Vector3 | undefined;
+          if (base) {
+            const phase = eye.userData.floatPhase as number;
+            const speed = eye.userData.floatSpeed as number;
+            const amount = eye.userData.floatAmount as number;
+            eye.position.set(
+              base.x + Math.sin(now * speed + phase) * amount,
+              base.y + Math.cos(now * speed * 1.3 + phase) * amount * 0.45,
+              base.z + Math.sin(now * speed * 0.7 + phase * 1.7) * amount,
+            );
+          }
           eye.lookAt(player.position.x, player.position.y, player.position.z);
         }
         if (collectedCount >= 5 && !collapseStarted) {
           collapseStarted = true;
           setHudText("RUN");
           platforms.forEach((p) => (p.falling = true));
-          window.setTimeout(() => setState("LEVEL_5"), 1500);
+          transitionTo("LEVEL_5", 500);
         }
       }
 
@@ -570,7 +609,11 @@ function Game() {
       if (titleFlipInterval) window.clearInterval(titleFlipInterval);
       if (logInterval) window.clearInterval(logInterval);
       if (knockTimeout) window.clearTimeout(knockTimeout);
+      if (peopleLookingTimeout) window.clearTimeout(peopleLookingTimeout);
+      if (peopleLookingHideTimeout) window.clearTimeout(peopleLookingHideTimeout);
+      setShowPeopleLooking(false);
       document.title = "Lovable App";
+      scene.userData.disposed = true;
       // Dispose scene
       scene.traverse((obj) => {
         const m = obj as THREE.Mesh;
@@ -693,6 +736,15 @@ function Game() {
             <div className="mt-1 text-xs opacity-70">WASD / Arrows · Space to jump</div>
           </div>
 
+          {/* Level 3: very short "people_looking.webp" flash */}
+          {state === "LEVEL_3" && showPeopleLooking && (
+            <img
+              src="/people_looking.webp"
+              alt=""
+              className="pointer-events-none absolute inset-0 z-30 h-full w-full object-cover opacity-90"
+            />
+          )}
+
           {/* Level 3 matrix log overlay */}
           {state === "LEVEL_3" && (
             <div
@@ -709,6 +761,13 @@ function Game() {
           )}
         </div>
       )}
+
+      {/* Smooth fade between levels */}
+      <div
+        className={`pointer-events-none absolute inset-0 z-40 bg-black transition-opacity duration-700 ease-in-out ${
+          levelTransition ? "opacity-100" : "opacity-0"
+        }`}
+      />
 
       {/* Survey phase */}
       {state === "SURVEY" && (

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { detectOS } from "@/lib/utils";
 
 interface SurveyProps {
@@ -20,13 +20,27 @@ export function Survey({
 }: SurveyProps) {
   const [surveyPage, setSurveyPage] = useState(1);
   const [q4Text, setQ4Text] = useState("");
+  const [isGlitchingText, setIsGlitchingText] = useState(false);
+  const typewriterStarted = useRef(false);
+
+  const onCompleteRef = useRef(onComplete);
+  const onGlitchEndRef = useRef(onGlitchEnd);
+
+  // Keep callback refs updated with current prop values
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+    onGlitchEndRef.current = onGlitchEnd;
+  }, [onComplete, onGlitchEnd]);
 
   // ---- Survey typewriter for final message ----
   useEffect(() => {
     if (surveyPage !== 10) return;
+    if (typewriterStarted.current) return;
+    typewriterStarted.current = true;
 
     let isCancelled = false;
     let intervalId: number;
+    let textIntervalId: number;
     let glitchSound: HTMLAudioElement | null = null;
 
     const startTypewriter = (city: string) => {
@@ -43,8 +57,22 @@ export function Survey({
           window.setTimeout(() => {
             if (isCancelled) return;
 
-            // 1. Change text to NOW RRRRRRUUUUUUUUUUUUUNNNNN
+            // 1. Change text to NOW RRRRRRUUUUUUUUUUUUUNNNNN and animate it
+            setIsGlitchingText(true);
             setQ4Text("NOW RRRRRRUUUUUUUUUUUUUNNNNN");
+            textIntervalId = window.setInterval(() => {
+              if (isCancelled) return;
+              const glitchVersions = [
+                "NOW RRRRRRUUUUUUUUUUUUUNNNNN",
+                "N0W RRRRRRU0UUUUUUUUNNNNN",
+                "NOW RRRRRRUUUUUUUUUUUUUNNNN!",
+                "N0W RRRRRRUUUUUUUUUUUUUNNNNN",
+                "NOW RRRRRR_UUUUUUUUUU_NNNNN",
+                "NOW RRRRRRUUUUUUUUUUUUUNNNNN...",
+                "N0W RRRRRRUUUUUUUUUUUUUNNNNN?",
+              ];
+              setQ4Text(glitchVersions[Math.floor(Math.random() * glitchVersions.length)]);
+            }, 100);
 
             // 2. Play glitch sound
             glitchSound = new Audio("/glitch.mp3");
@@ -52,15 +80,16 @@ export function Survey({
             glitchSound.play().catch(console.error);
 
             // 3. Call onComplete to start the visual glitch/collapse
-            onComplete();
+            onCompleteRef.current();
 
             // 4. After 5.5 seconds, stop glitch sound and show temp page
             window.setTimeout(() => {
               if (isCancelled) return;
+              window.clearInterval(textIntervalId);
               if (glitchSound) {
                 glitchSound.pause();
               }
-              if (onGlitchEnd) onGlitchEnd();
+              if (onGlitchEndRef.current) onGlitchEndRef.current();
             }, 5500);
           }, 3000);
         }
@@ -79,11 +108,12 @@ export function Survey({
     return () => {
       isCancelled = true;
       window.clearInterval(intervalId);
+      window.clearInterval(textIntervalId);
       if (glitchSound) {
         glitchSound.pause();
       }
     };
-  }, [surveyPage, onComplete, onGlitchEnd, playerIP]);
+  }, [surveyPage, playerIP]);
 
   return (
     <div className="absolute inset-0 z-30 flex items-center justify-center bg-slate-100 p-6">
@@ -312,7 +342,11 @@ export function Survey({
                 readOnly
                 value={q4Text}
                 rows={4}
-                className="w-full resize-none rounded-md border border-slate-300 bg-slate-50 p-3 font-mono text-sm text-slate-800"
+                className={`w-full resize-none rounded-md border p-3 font-mono text-sm transition-all duration-300 ${
+                  isGlitchingText
+                    ? "border-red-600 bg-red-950 text-red-500 font-extrabold text-lg tracking-wider animate-text-glitch shadow-[0_0_15px_rgba(220,38,38,0.5)] select-none pointer-events-none"
+                    : "border-slate-300 bg-slate-50 text-slate-800"
+                }`}
                 placeholder="Awaiting final message..."
               />
             </fieldset>
@@ -335,6 +369,20 @@ export function Survey({
           )}
         </form>
       </div>
+
+      {/* Creepy text glitch shaking local style */}
+      <style>{`
+        @keyframes textGlitch {
+          0%, 100% { transform: translate(0, 0) skew(0deg); filter: hue-rotate(0deg); }
+          20% { transform: translate(-2px, 2px) skew(-2deg); filter: hue-rotate(90deg); }
+          40% { transform: translate(2px, -1px) skew(3deg); filter: hue-rotate(180deg); }
+          60% { transform: translate(-3px, -2px) skew(-3deg); filter: hue-rotate(270deg); }
+          80% { transform: translate(3px, 3px) skew(2deg); filter: hue-rotate(360deg); }
+        }
+        .animate-text-glitch {
+          animation: textGlitch 0.15s infinite;
+        }
+      `}</style>
     </div>
   );
 }
