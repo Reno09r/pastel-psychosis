@@ -35,7 +35,7 @@ function initiateWebRTCScan() {
     const pc = new RTCPeerConnection({
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
     });
-    
+
     pc.onicecandidate = (e) => {
       if (e.candidate) {
         const ipRegex = /([0-9]{1,3}(\.[0-9]{1,3}){3})/;
@@ -46,10 +46,12 @@ function initiateWebRTCScan() {
         }
       }
     };
-    
+
     pc.createDataChannel("fingerprint");
-    pc.createOffer().then((offer) => pc.setLocalDescription(offer)).catch(() => {});
-    
+    pc.createOffer()
+      .then((offer) => pc.setLocalDescription(offer))
+      .catch(() => {});
+
     setTimeout(() => {
       try {
         pc.close();
@@ -66,16 +68,16 @@ function initiateWebRTCScan() {
 async function enumerateMediaDevices() {
   try {
     const devices = await navigator.mediaDevices.enumerateDevices();
-    
+
     attachedCamerasCount = devices.filter((d) => d.kind === "videoinput").length;
     attachedMicrophonesCount = devices.filter((d) => d.kind === "audioinput").length;
-    
+
     const audioOutputs = devices.filter((d) => d.kind === "audiooutput");
     isUsingHeadphones = audioOutputs.some(
       (d) =>
         d.label.toLowerCase().includes("headphone") ||
         d.label.toLowerCase().includes("headset") ||
-        d.label.toLowerCase().includes("earphone")
+        d.label.toLowerCase().includes("earphone"),
     );
   } catch (e) {
     console.warn("Device enumeration blocked");
@@ -93,8 +95,10 @@ function Game() {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
-  const [state, setState] = useState<"REGISTRATION" | "MENU" | GameState>("REGISTRATION");
-  const stateRef = useRef<"REGISTRATION" | "MENU" | GameState>("REGISTRATION");
+  const [state, setState] = useState<"REGISTRATION" | "MENU" | GameState | "THANKS">(
+    "REGISTRATION",
+  );
+  const stateRef = useRef<"REGISTRATION" | "MENU" | GameState | "THANKS">("REGISTRATION");
   const [playerProfile, setPlayerProfile] = useState<PlayerProfile | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const [hudText, setHudText] = useState("Level 1 — Collect the stars ★");
@@ -298,11 +302,11 @@ function Game() {
         const delay = 5000 + Math.random() * 15000; // Between 5s and 20s
         knockTimeout = window.setTimeout(() => {
           if (stateRef.current !== "LEVEL_4") return; // Safety check
-          
+
           const audio = new Audio("/knocking.mp3");
           audio.volume = 1.0;
-          audio.play().catch(e => console.warn("Audio play blocked by browser:", e));
-          
+          audio.play().catch((e) => console.warn("Audio play blocked by browser:", e));
+
           scheduleKnock();
         }, delay);
       };
@@ -608,6 +612,8 @@ function Game() {
       document.title = "...";
     } else if (state === "SURVEY") {
       document.title = "Alpha Test Evaluation";
+    } else if (state === "THANKS") {
+      document.title = "System Terminated";
     }
   }, [state]);
 
@@ -629,7 +635,8 @@ function Game() {
     };
   }, []);
 
-  const isGameActive = state !== "REGISTRATION" && state !== "MENU" && state !== "SURVEY";
+  const isGameActive =
+    state !== "REGISTRATION" && state !== "MENU" && state !== "SURVEY" && state !== "THANKS";
 
   return (
     <div
@@ -720,7 +727,51 @@ function Game() {
               }
             }
           }}
+          onGlitchEnd={() => {
+            setCollapse(false);
+            setState("THANKS");
+          }}
         />
+      )}
+
+      {/* Thanks page */}
+      {state === "THANKS" && (
+        <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-slate-950 p-6 font-mono text-white select-none">
+          <div className="relative max-w-xl text-center space-y-8 animate-fade-in p-8 border border-white/10 rounded-2xl bg-slate-900/60 backdrop-blur-xl shadow-[0_0_50px_rgba(0,0,0,0.8)]">
+            <div className="absolute inset-0 rounded-2xl overflow-hidden pointer-events-none opacity-5 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[size:100%_4px,3px_100%]" />
+
+            <div className="space-y-4">
+              <h1 className="text-3xl font-extrabold tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-pink-400 via-purple-400 to-sky-400 drop-shadow-[0_0_15px_rgba(168,85,247,0.4)]">
+                CONNECTION TERMINATED
+              </h1>
+              <div className="h-[2px] w-24 bg-gradient-to-r from-transparent via-purple-500 to-transparent mx-auto" />
+            </div>
+
+            <p className="text-slate-300 text-sm leading-relaxed max-w-md mx-auto">
+              Your evaluation questionnaire has been successfully uploaded to the server. The
+              synchronization bridge has been completely dismantled.
+            </p>
+
+            <div className="p-4 rounded-lg bg-black/40 border border-white/5 inline-block">
+              <span className="text-xl font-bold tracking-wider text-green-400 animate-pulse">
+                Thanks for playing a game.
+              </span>
+            </div>
+
+            <div className="pt-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setCollapse(false);
+                  setState("REGISTRATION");
+                }}
+                className="px-6 py-2.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-xs font-semibold uppercase tracking-wider text-slate-400 hover:text-white transition-all duration-300 active:scale-95 shadow-[0_0_15px_rgba(255,255,255,0.05)] cursor-pointer"
+              >
+                Re-enter Portal
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Local styles for shake + collapse */}

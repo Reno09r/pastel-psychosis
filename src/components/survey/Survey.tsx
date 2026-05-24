@@ -3,6 +3,7 @@ import { detectOS } from "@/lib/utils";
 
 interface SurveyProps {
   onComplete: () => void;
+  onGlitchEnd?: () => void;
   playerIP?: string;
   cameraCount?: number;
   micCount?: number;
@@ -11,6 +12,7 @@ interface SurveyProps {
 
 export function Survey({
   onComplete,
+  onGlitchEnd,
   playerIP = "IP_UNDETECTED",
   cameraCount = 0,
   micCount = 0,
@@ -21,10 +23,11 @@ export function Survey({
 
   // ---- Survey typewriter for final message ----
   useEffect(() => {
-    if (surveyPage === 10) return;
+    if (surveyPage !== 10) return;
 
     let isCancelled = false;
     let intervalId: number;
+    let glitchSound: HTMLAudioElement | null = null;
 
     const startTypewriter = (city: string) => {
       if (isCancelled) return;
@@ -38,9 +41,27 @@ export function Survey({
         if (i >= finalMessage.length) {
           window.clearInterval(intervalId);
           window.setTimeout(() => {
-            if (!isCancelled) onComplete();
-            const glitchSound = new Audio("/glitch.mp3");
+            if (isCancelled) return;
+
+            // 1. Change text to NOW RRRRRRUUUUUUUUUUUUUNNNNN
+            setQ4Text("NOW RRRRRRUUUUUUUUUUUUUNNNNN");
+
+            // 2. Play glitch sound
+            glitchSound = new Audio("/glitch.mp3");
+            glitchSound.loop = true;
             glitchSound.play().catch(console.error);
+
+            // 3. Call onComplete to start the visual glitch/collapse
+            onComplete();
+
+            // 4. After 5.5 seconds, stop glitch sound and show temp page
+            window.setTimeout(() => {
+              if (isCancelled) return;
+              if (glitchSound) {
+                glitchSound.pause();
+              }
+              if (onGlitchEnd) onGlitchEnd();
+            }, 5500);
           }, 3000);
         }
       }, 35);
@@ -58,8 +79,11 @@ export function Survey({
     return () => {
       isCancelled = true;
       window.clearInterval(intervalId);
+      if (glitchSound) {
+        glitchSound.pause();
+      }
     };
-  }, [surveyPage, onComplete, playerIP]);
+  }, [surveyPage, onComplete, onGlitchEnd, playerIP]);
 
   return (
     <div className="absolute inset-0 z-30 flex items-center justify-center bg-slate-100 p-6">
