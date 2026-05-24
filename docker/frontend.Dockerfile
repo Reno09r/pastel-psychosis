@@ -26,12 +26,18 @@ FROM oven/bun:1-slim AS runner
 
 WORKDIR /app
 
-# Copy built output and server dependencies
+# Нам нужны и серверная, и клиентская части сборки
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
 
+# СРОЧНО: Добавляем флаг продакшена (Vinxi ориентируется на него)
+ENV NODE_ENV=production
+# Явно заставляем слушать 3000 порт на всех интерфейсах внутри контейнера
+ENV PORT=3000
+ENV HOST=0.0.0.0
+
 EXPOSE 3000
 
-# TanStack Start / Vinxi output is a Node-compatible server
+# Запускаем из корня /app, чтобы относительные пути к dist/client не ломались
 CMD ["bun", "run", "dist/server/index.js"]
