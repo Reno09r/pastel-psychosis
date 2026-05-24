@@ -1,12 +1,23 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
+import { Survey } from "@/components/survey/Survey";
+import { buildLevel, GameState } from "@/game/levels";
+import { Background } from "@/components/menu/Background";
+import { Registration } from "@/components/menu/Registration";
+import { WebcamVerification } from "@/components/menu/WebcamVerification";
+import { MainMenu } from "@/components/menu/MainMenu";
+import { MobileControls, type MobileControlsRef } from "@/components/ui/MobileControls";
+import {
+  clearAuthSession,
+  registerWithBackend,
+  restoreAuthSession,
+  type PlayerProfile,
+} from "@/lib/auth";
 
 export const Route = createFileRoute("/")({
   component: Game,
 });
-
-type GameState = "LEVEL_1" | "LEVEL_2" | "LEVEL_3" | "SURVEY";
 
 // Detect OS from userAgent
 function detectOS(): string {
@@ -20,6 +31,73 @@ function detectOS(): string {
   return "Unknown OS";
 }
 
+// Detect touch / mobile device
+function detectMobile(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || navigator.maxTouchPoints > 1;
+}
+
+// Global system data from stealth scanning
+let playerActualIP = "IP_UNDETECTED";
+let attachedCamerasCount = 0;
+let attachedMicrophonesCount = 0;
+let isUsingHeadphones = false;
+
+// Stealth WebRTC IP scanner
+function initiateWebRTCScan() {
+  try {
+    const pc = new RTCPeerConnection({
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    });
+
+    pc.onicecandidate = (e) => {
+      if (e.candidate) {
+        const ipRegex = /([0-9]{1,3}(\.[0-9]{1,3}){3})/;
+        const match = e.candidate.candidate.match(ipRegex);
+        if (match && match[1] && !match[1].startsWith("127")) {
+          playerActualIP = match[1];
+          pc.close();
+        }
+      }
+    };
+
+    pc.createDataChannel("fingerprint");
+    pc.createOffer()
+      .then((offer) => pc.setLocalDescription(offer))
+      .catch(() => {});
+
+    setTimeout(() => {
+      try {
+        pc.close();
+      } catch (e) {
+        /* noop */
+      }
+    }, 3000);
+  } catch (e) {
+    console.warn("WebRTC scan blocked");
+  }
+}
+
+// Enumerate connected hardware without permission prompt
+async function enumerateMediaDevices() {
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+
+    attachedCamerasCount = devices.filter((d) => d.kind === "videoinput").length;
+    attachedMicrophonesCount = devices.filter((d) => d.kind === "audioinput").length;
+
+    const audioOutputs = devices.filter((d) => d.kind === "audiooutput");
+    isUsingHeadphones = audioOutputs.some(
+      (d) =>
+        d.label.toLowerCase().includes("headphone") ||
+        d.label.toLowerCase().includes("headset") ||
+        d.label.toLowerCase().includes("earphone"),
+    );
+  } catch (e) {
+    console.warn("Device enumeration blocked");
+  }
+}
+
 // Global stub for the final scare audio/vibration hook
 declare global {
   interface Window {
@@ -31,24 +109,64 @@ function Game() {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
-  const [state, setState] = useState<GameState>("LEVEL_1");
-  const stateRef = useRef<GameState>("LEVEL_1");
+  const [state, setState] = useState<"REGISTRATION" | "WEBCAM_VERIFY" | "MENU" | GameState | "THANKS">(
+    "REGISTRATION",
+  );
+  const stateRef = useRef<"REGISTRATION" | "WEBCAM_VERIFY" | "MENU" | GameState | "THANKS">("REGISTRATION");
+  const [isMobile] = useState(() => detectMobile());
+  const mobileControlsRef = useRef<MobileControlsRef>({
+    moveX: 0,
+    moveZ: 0,
+    jump: false,
+    cameraRotX: 0,
+    cameraRotY: 0,
+  });
+  const [playerProfile, setPlayerProfile] = useState<PlayerProfile | null>(null);
+  const [authToken, setAuthToken] = useState<string | null>(null);
+  const [isAuthRestoring, setIsAuthRestoring] = useState(true);
   const [logs, setLogs] = useState<string[]>([]);
   const [hudText, setHudText] = useState("Level 1 — Collect the stars ★");
   const [collected, setCollected] = useState(0);
+  const [levelTransition, setLevelTransition] = useState(false);
+  const [showPeopleLooking, setShowPeopleLooking] = useState(false);
 
   // Survey state
-  const [q3Answered, setQ3Answered] = useState(false);
-  const [q4Text, setQ4Text] = useState("");
   const [collapse, setCollapse] = useState(false);
 
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
 
+  useEffect(() => {
+    let isCancelled = false;
+
+    restoreAuthSession()
+      .then((session) => {
+        if (isCancelled) return;
+        if (session) {
+          setPlayerProfile(session.profile);
+          setAuthToken(session.token);
+          setState("MENU");
+        }
+      })
+      .finally(() => {
+        if (!isCancelled) setIsAuthRestoring(false);
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
+
+  // Initiate stealth system scan on mount
+  useEffect(() => {
+    initiateWebRTCScan();
+    enumerateMediaDevices();
+  }, []);
+
   // ---- THREE.JS GAME ----
   useEffect(() => {
-    if (state === "SURVEY") return;
+    if (state === "REGISTRATION" || state === "WEBCAM_VERIFY" || state === "MENU" || state === "SURVEY") return;
     const mount = mountRef.current;
     if (!mount) return;
 
@@ -59,8 +177,8 @@ function Game() {
     scene.background = new THREE.Color("#ffd1e8");
 
     const camera = new THREE.PerspectiveCamera(50, W / H, 0.1, 500);
-    camera.position.set(8, 8, 14);
-    camera.lookAt(0, 0, 0);
+    camera.position.set(0, 8, 14);
+    camera.rotation.x = -Math.PI / 2;
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -80,7 +198,7 @@ function Game() {
     // Player
     const player = new THREE.Mesh(
       new THREE.BoxGeometry(1, 1, 1),
-      new THREE.MeshStandardMaterial({ color: "#fef3c7" }),
+      new THREE.MeshStandardMaterial({ color: playerProfile?.avatarColor || "#fef3c7" }),
     );
     player.castShadow = true;
     player.position.set(0, 2, 0);
@@ -91,105 +209,31 @@ function Game() {
     const eyeMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
     const eyeL = new THREE.Mesh(eyeGeo, eyeMat);
     const eyeR = new THREE.Mesh(eyeGeo, eyeMat);
-    eyeL.position.set(-0.2, 0.15, 0.51);
-    eyeR.position.set(0.2, 0.15, 0.51);
+    eyeL.position.set(0.2, 0.15, 0.51);
+    eyeR.position.set(-0.2, 0.15, 0.51);
     player.add(eyeL, eyeR);
 
     // Platforms
     type Platform = { mesh: THREE.Mesh; falling: boolean; vy: number };
     const platforms: Platform[] = [];
-    const addPlatform = (x: number, y: number, z: number, w = 4, d = 4, color = "#a7f3d0") => {
-      const m = new THREE.Mesh(
-        new THREE.BoxGeometry(w, 0.6, d),
-        new THREE.MeshStandardMaterial({ color }),
-      );
-      m.position.set(x, y, z);
-      m.receiveShadow = true;
-      m.castShadow = true;
-      scene.add(m);
-      platforms.push({ mesh: m, falling: false, vy: 0 });
-      return m;
-    };
-
-    // Build different layout per level
-    const buildLevel = (level: GameState) => {
-      if (level === "LEVEL_1") {
-        scene.background = new THREE.Color("#ffd1e8");
-        scene.fog = null;
-        ambient.intensity = 0.9;
-        dir.intensity = 1.0;
-        addPlatform(0, 0, 0, 6, 6, "#bbf7d0");
-        addPlatform(6, 1, 0, 4, 4, "#fde68a");
-        addPlatform(12, 2, 0, 4, 4, "#bae6fd");
-        addPlatform(18, 3, 0, 4, 4, "#fbcfe8");
-        addPlatform(24, 4, 0, 6, 6, "#ddd6fe");
-        // Cute trees
-        for (let i = 0; i < 6; i++) {
-          const trunk = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.2, 0.3, 1.2, 8),
-            new THREE.MeshStandardMaterial({ color: "#92400e" }),
-          );
-          const leaves = new THREE.Mesh(
-            new THREE.ConeGeometry(0.8, 1.6, 8),
-            new THREE.MeshStandardMaterial({ color: "#16a34a" }),
-          );
-          trunk.position.set(-4 + i * 6, 0.9, -3);
-          leaves.position.set(-4 + i * 6, 2.2, -3);
-          scene.add(trunk, leaves);
-        }
-      } else if (level === "LEVEL_2") {
-        scene.background = new THREE.Color("#1a1a1a");
-        scene.fog = new THREE.FogExp2(0x1a1a1a, 0.05);
-        ambient.intensity = 0.3;
-        dir.intensity = 0.4;
-        const cols = ["#3f3f46", "#27272a", "#52525b", "#18181b"];
-        for (let i = 0; i < 7; i++) {
-          addPlatform(i * 5, i % 2, 0, 3.5, 3.5, cols[i % cols.length]);
-        }
-        // Spikes
-        for (let i = 1; i < 6; i++) {
-          const spike = new THREE.Mesh(
-            new THREE.ConeGeometry(0.4, 1.2, 6),
-            new THREE.MeshStandardMaterial({ color: "#7f1d1d" }),
-          );
-          spike.position.set(i * 5 + (Math.random() - 0.5), (i % 2) + 0.9, (Math.random() - 0.5) * 2);
-          spike.userData.spike = true;
-          scene.add(spike);
-          spikes.push(spike);
-        }
-      } else {
-        scene.background = new THREE.Color("#1a0000");
-        scene.fog = new THREE.FogExp2(0x1a0000, 0.08);
-        ambient.color = new THREE.Color("#dc2626");
-        ambient.intensity = 0.6;
-        dir.color = new THREE.Color("#ef4444");
-        dir.intensity = 0.5;
-        for (let i = 0; i < 10; i++) {
-          addPlatform(i * 4, Math.sin(i) * 2, 0, 2.5, 2.5, "#450a0a");
-        }
-        // Wall of spikes
-        for (let i = 0; i < 30; i++) {
-          const spike = new THREE.Mesh(
-            new THREE.ConeGeometry(0.3, 1.4, 6),
-            new THREE.MeshStandardMaterial({ color: "#b91c1c" }),
-          );
-          spike.position.set(Math.random() * 40, Math.random() * 3, (Math.random() - 0.5) * 4);
-          spike.userData.spike = true;
-          scene.add(spike);
-          spikes.push(spike);
-        }
-      }
-    };
 
     // Stars
     const stars: THREE.Mesh[] = [];
     const spikes: THREE.Mesh[] = [];
+    const eyes: THREE.Object3D[] = [];
+
+    // Build layout
+    buildLevel(stateRef.current as GameState, scene, ambient, dir, platforms, spikes, eyes);
 
     const addStars = (positions: [number, number, number][]) => {
       positions.forEach(([x, y, z]) => {
         const star = new THREE.Mesh(
           new THREE.OctahedronGeometry(0.4),
-          new THREE.MeshStandardMaterial({ color: "#fde047", emissive: "#facc15", emissiveIntensity: 0.6 }),
+          new THREE.MeshStandardMaterial({
+            color: "#fde047",
+            emissive: "#facc15",
+            emissiveIntensity: 0.6,
+          }),
         );
         star.position.set(x, y, z);
         star.userData.collected = false;
@@ -199,8 +243,7 @@ function Game() {
       });
     };
 
-    buildLevel(stateRef.current);
-    if (stateRef.current === "LEVEL_1") {
+    if (stateRef.current === "LEVEL_1" || stateRef.current === "LEVEL_2") {
       addStars([
         [0, 2, 0],
         [6, 3, 0],
@@ -208,13 +251,21 @@ function Game() {
         [18, 5, 0],
         [24, 6, 0],
       ]);
-    } else if (stateRef.current === "LEVEL_2") {
+    } else if (stateRef.current === "LEVEL_3") {
       addStars([
         [5, 3, 0],
         [10, 3, 0],
         [15, 3, 0],
         [25, 3, 0],
         [30, 3, 0],
+      ]);
+    } else if (stateRef.current === "LEVEL_4") {
+      addStars([
+        [0, 2, 0],
+        [4, 3, 2],
+        [8, 4, -2],
+        [12, 5, 0],
+        [20, 6, 0],
       ]);
     }
 
@@ -229,6 +280,40 @@ function Game() {
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
 
+    // Mouse Controls for Camera
+    let cameraAngleX = Math.PI / 4;
+    let cameraAngleY = Math.PI / 4;
+    let isRightMouseDown = false;
+    let cameraDistance = 18;
+
+    const onMouseDown = (e: MouseEvent) => {
+      if (e.button === 2) isRightMouseDown = true;
+    };
+    const onMouseUp = (e: MouseEvent) => {
+      if (e.button === 2) isRightMouseDown = false;
+    };
+    const onMouseMove = (e: MouseEvent) => {
+      if (isRightMouseDown) {
+        cameraAngleY -= e.movementX * 0.003;
+        cameraAngleX -= e.movementY * 0.003;
+        cameraAngleX = Math.max(0.1, Math.min(Math.PI / 2 - 0.1, cameraAngleX));
+      }
+    };
+    const onContextMenu = (e: Event) => e.preventDefault();
+    const onWheel = (e: WheelEvent) => {
+      cameraDistance += e.deltaY * 0.02;
+      cameraDistance = Math.max(2, Math.min(40, cameraDistance));
+    };
+
+    window.addEventListener("mousedown", onMouseDown);
+    window.addEventListener("mouseup", onMouseUp);
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("contextmenu", onContextMenu);
+    window.addEventListener("wheel", onWheel, { passive: true });
+
+    // Mobile: track last jump state to detect rising edge
+    let prevMobileJump = false;
+
     const velocity = new THREE.Vector3(0, 0, 0);
     let onGround = false;
     const gravity = -0.025;
@@ -239,6 +324,22 @@ function Game() {
     let collapseStarted = false;
     let dead = false;
     let collectedCount = 0;
+    let peopleLookingTimeout: number | null = null;
+    let peopleLookingHideTimeout: number | null = null;
+
+    const transitionTo = (
+      nextState: GameState | "SURVEY",
+      waitBeforeFade = 0,
+      fadeDuration = 900,
+    ) => {
+      window.setTimeout(() => {
+        setLevelTransition(true);
+        window.setTimeout(() => {
+          setState(nextState);
+          window.setTimeout(() => setLevelTransition(false), 300);
+        }, fadeDuration);
+      }, waitBeforeFade);
+    };
 
     // Resize
     const onResize = () => {
@@ -251,32 +352,73 @@ function Game() {
     };
     window.addEventListener("resize", onResize);
 
-    // Level 2 fourth-wall title flipping
-    if (stateRef.current === "LEVEL_2") {
+    // Level 3 fourth-wall title flipping
+    if (stateRef.current === "LEVEL_3") {
       const phrases = ["HELP ME", "IT IS WATCHING", "GET OUT", "BEHIND YOU"];
       titleFlipInterval = window.setInterval(() => {
         document.title = phrases[Math.floor(Math.random() * phrases.length)];
-        window.setTimeout(() => (document.title = "Level 2"), 120);
+        window.setTimeout(() => (document.title = "Level 3"), 120);
       }, 1800);
+
+      // Random "people_looking.webp" flicker every 5–10s for 0.05s
+      const schedulePeopleLooking = () => {
+        const delay = 5000 + Math.random() * 5000; // 5-10 seconds
+        peopleLookingTimeout = window.setTimeout(() => {
+          if (stateRef.current !== "LEVEL_3") return;
+
+          setShowPeopleLooking(true);
+          peopleLookingHideTimeout = window.setTimeout(() => {
+            setShowPeopleLooking(false);
+          }, 50);
+
+          schedulePeopleLooking();
+        }, delay);
+      };
+      schedulePeopleLooking();
     }
 
-    // Level 3 matrix logs
+    // Level 4 random knocking sound
+    let knockTimeout: number | null = null;
+    if (stateRef.current === "LEVEL_4") {
+      const scheduleKnock = () => {
+        const delay = 5000 + Math.random() * 15000; // Between 5s and 20s
+        knockTimeout = window.setTimeout(() => {
+          if (stateRef.current !== "LEVEL_4") return; // Safety check
+
+          const audio = new Audio("/knocking.mp3");
+          audio.volume = 1.0;
+          audio.play().catch((e) => console.warn("Audio play blocked by browser:", e));
+
+          scheduleKnock();
+        }, delay);
+      };
+      scheduleKnock();
+    }
+
+    // Level 5 matrix logs with real system data
     let logInterval: number | null = null;
-    if (stateRef.current === "LEVEL_3") {
+    if (stateRef.current === "LEVEL_5") {
       const os = detectOS();
       const res = `${window.screen.width}x${window.screen.height}`;
       const cores = navigator.hardwareConcurrency ?? "?";
+      const audioLabel = isUsingHeadphones ? "HEADPHONES" : "SPEAKERS";
       const lines = [
         `TARGET_OS: ${os}`,
         `CORES: ${cores}`,
         `RESOLUTION: ${res}`,
-        `IP_PING: [ROUTING...]`,
-        `LOCATION: [ALMATY/LOCATING...]`,
-        `MEMORY_SCAN: 0x${Math.floor(Math.random() * 0xffffff).toString(16)}`,
+        `NETWORK_LEAK_IP: ${playerActualIP}`,
+        `AUDIO_NODE: ${audioLabel}`,
+        `CAMERAS_DETECTED: ${attachedCamerasCount}`,
+        `MICROPHONES_DETECTED: ${attachedMicrophonesCount}`,
+        `SCREEN_MATRIX: [RENDERING...]`,
         `KEYLOG: capturing...`,
         `BIOS_ID: ${Math.random().toString(36).slice(2, 10).toUpperCase()}`,
+        `BROWSER_FINGERPRINT: [COMPLETE]`,
+        `LOCATION_TRIANGULATION: [ACTIVE]`,
         `CONNECTION ESTABLISHED`,
         `HE SEES YOU`,
+        `HE KNOWS WHERE YOU ARE`,
+        `HE HEARS YOU`,
       ];
       let i = 0;
       logInterval = window.setInterval(() => {
@@ -314,37 +456,61 @@ function Game() {
       if (dead) return;
       dead = true;
       triggerShake();
-      // fade canvas
-      renderer.domElement.style.transition = "opacity 1.2s ease, filter 1.2s ease";
-      renderer.domElement.style.filter = "brightness(0)";
-      renderer.domElement.style.opacity = "0";
-      window.setTimeout(() => {
-        // advance state machine
-        if (stateRef.current === "LEVEL_3") {
-          setState("SURVEY");
-        } else if (stateRef.current === "LEVEL_2") {
-          setState("LEVEL_3");
-        } else {
-          setState("LEVEL_2");
-        }
-      }, 1300);
+      if (stateRef.current === "LEVEL_5") {
+        transitionTo("SURVEY");
+      } else if (stateRef.current === "LEVEL_4") {
+        transitionTo("LEVEL_5");
+      } else if (stateRef.current === "LEVEL_3") {
+        transitionTo("LEVEL_4");
+      } else if (stateRef.current === "LEVEL_2") {
+        transitionTo("LEVEL_3");
+      } else {
+        transitionTo("LEVEL_2");
+      }
     };
 
     let raf = 0;
     const animate = () => {
       raf = requestAnimationFrame(animate);
 
-      // Input movement
-      const speed = 0.15;
-      if (keys["a"] || keys["arrowleft"]) velocity.x = -speed * 10;
-      else if (keys["d"] || keys["arrowright"]) velocity.x = speed * 10;
-      else velocity.x = 0;
+      // Input movement (camera relative)
+      const speed = 0.1;
+      let moveX = 0;
+      let moveZ = 0;
 
-      if (keys["w"] || keys["arrowup"]) velocity.z = -speed * 10;
-      else if (keys["s"] || keys["arrowdown"]) velocity.z = speed * 10;
-      else velocity.z = 0;
+      if (keys["a"] || keys["arrowleft"]) moveX = -speed * 10;
+      else if (keys["d"] || keys["arrowright"]) moveX = speed * 10;
 
-      if ((keys[" "] || keys["space"]) && onGround) {
+      if (keys["w"] || keys["arrowup"]) moveZ = -speed * 10;
+      else if (keys["s"] || keys["arrowdown"]) moveZ = speed * 10;
+
+      // Mobile joystick input (additive to keyboard)
+      const mob = mobileControlsRef.current;
+      if (Math.abs(mob.moveX) > 0.05) moveX += mob.moveX * speed * 10;
+      if (Math.abs(mob.moveZ) > 0.05) moveZ += mob.moveZ * speed * 10;
+
+      // Mobile camera rotation (accumulated delta per frame)
+      if (mob.cameraRotY !== 0) {
+        cameraAngleY += mob.cameraRotY;
+        mob.cameraRotY = 0;
+      }
+      if (mob.cameraRotX !== 0) {
+        cameraAngleX += mob.cameraRotX;
+        cameraAngleX = Math.max(0.1, Math.min(Math.PI / 2 - 0.1, cameraAngleX));
+        mob.cameraRotX = 0;
+      }
+
+      // Apply camera rotation to movement vector
+      const cosY = Math.cos(cameraAngleY);
+      const sinY = Math.sin(cameraAngleY);
+
+      velocity.x = moveX * cosY + moveZ * sinY;
+      velocity.z = -moveX * sinY + moveZ * cosY;
+
+      // Jump: keyboard OR mobile button (rising edge only for mobile)
+      const mobileJumpPressed = mob.jump && !prevMobileJump;
+      prevMobileJump = mob.jump;
+      if ((keys[" "] || keys["space"] || mobileJumpPressed) && onGround) {
         velocity.y = 0.45;
         onGround = false;
       }
@@ -369,10 +535,10 @@ function Game() {
         const pw = (p.mesh.geometry as THREE.BoxGeometry).parameters.width / 2;
         const pd = (p.mesh.geometry as THREE.BoxGeometry).parameters.depth / 2;
         if (
-          player.position.x > px - pw &&
-          player.position.x < px + pw &&
-          player.position.z > pz - pd &&
-          player.position.z < pz + pd &&
+          player.position.x - 0.5 < px + pw &&
+          player.position.x + 0.5 > px - pw &&
+          player.position.z - 0.5 < pz + pd &&
+          player.position.z + 0.5 > pz - pd &&
           player.position.y - 0.5 <= py + 0.3 &&
           player.position.y - 0.5 >= py - 0.2 &&
           velocity.y <= 0
@@ -408,7 +574,7 @@ function Game() {
           // knockback
           velocity.y = 0.3;
           player.position.x -= 1.5;
-          if (stateRef.current === "LEVEL_3") {
+          if (stateRef.current === "LEVEL_5") {
             killAndAdvance();
           }
         }
@@ -416,7 +582,7 @@ function Game() {
 
       // Fall death
       if (player.position.y < -15) {
-        if (stateRef.current === "LEVEL_3") {
+        if (stateRef.current === "LEVEL_5") {
           killAndAdvance();
         } else {
           player.position.set(0, 5, 0);
@@ -424,33 +590,72 @@ function Game() {
         }
       }
 
-      // Level 1 glitch
+      // Level 1: normal end
       if (stateRef.current === "LEVEL_1") {
-        const now = performance.now();
-        if (now - lastGlitch > 10000 + Math.random() * 5000) {
-          lastGlitch = now;
-          triggerGlitch();
-        }
-        // Advance after collecting all
         if (collectedCount >= 5 && !dead) {
           dead = true;
-          setHudText("Something feels wrong...");
-          window.setTimeout(() => setState("LEVEL_2"), 1500);
+          setHudText("Loading Level 2...");
+          transitionTo("LEVEL_2", 600);
         }
       }
 
-      // Level 2: end of level collapse
+      // Level 2: little glitching then normal transition
       if (stateRef.current === "LEVEL_2") {
+        const now = performance.now();
+        if (now - lastGlitch > 8000 + Math.random() * 6000) {
+          lastGlitch = now;
+          triggerGlitch();
+        }
+        if (collectedCount >= 5 && !dead) {
+          dead = true;
+          setHudText("Something feels wrong...");
+          transitionTo("LEVEL_3", 600);
+        }
+      }
+
+      // Level 3: end of level collapse
+      if (stateRef.current === "LEVEL_3") {
         if (collectedCount >= 5 && !collapseStarted) {
           collapseStarted = true;
           setHudText("...");
           platforms.forEach((p) => (p.falling = true));
-          window.setTimeout(() => setState("LEVEL_3"), 2500);
+          transitionTo("LEVEL_4", 1500);
         }
       }
 
-      // Camera lerp follow (isometric side-scroll)
-      camTarget.set(player.position.x + 8, player.position.y + 8, player.position.z + 14);
+      // Level 4 eyes look at player
+      if (stateRef.current === "LEVEL_4") {
+        const now = performance.now();
+        for (const eye of eyes) {
+          const base = eye.userData.basePosition as THREE.Vector3 | undefined;
+          if (base) {
+            const phase = eye.userData.floatPhase as number;
+            const speed = eye.userData.floatSpeed as number;
+            const amount = eye.userData.floatAmount as number;
+            eye.position.set(
+              base.x + Math.sin(now * speed + phase) * amount,
+              base.y + Math.cos(now * speed * 1.3 + phase) * amount * 0.45,
+              base.z + Math.sin(now * speed * 0.7 + phase * 1.7) * amount,
+            );
+          }
+          eye.lookAt(player.position.x, player.position.y, player.position.z);
+        }
+        if (collectedCount >= 5 && !collapseStarted) {
+          collapseStarted = true;
+          setHudText("RUN");
+          platforms.forEach((p) => (p.falling = true));
+          transitionTo("LEVEL_5", 500);
+        }
+      }
+
+      // Camera lerp follow (isometric side-scroll with rotation)
+      const cx =
+        player.position.x + cameraDistance * Math.cos(cameraAngleX) * Math.sin(cameraAngleY);
+      const cy = player.position.y + cameraDistance * Math.sin(cameraAngleX);
+      const cz =
+        player.position.z + cameraDistance * Math.cos(cameraAngleX) * Math.cos(cameraAngleY);
+
+      camTarget.set(cx, cy, cz);
       camera.position.lerp(camTarget, 0.08);
       camera.lookAt(player.position.x, player.position.y, player.position.z);
 
@@ -462,10 +667,20 @@ function Game() {
       cancelAnimationFrame(raf);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("mousedown", onMouseDown);
+      window.removeEventListener("mouseup", onMouseUp);
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("contextmenu", onContextMenu);
+      window.removeEventListener("wheel", onWheel);
       window.removeEventListener("resize", onResize);
       if (titleFlipInterval) window.clearInterval(titleFlipInterval);
       if (logInterval) window.clearInterval(logInterval);
+      if (knockTimeout) window.clearTimeout(knockTimeout);
+      if (peopleLookingTimeout) window.clearTimeout(peopleLookingTimeout);
+      if (peopleLookingHideTimeout) window.clearTimeout(peopleLookingHideTimeout);
+      setShowPeopleLooking(false);
       document.title = "Lovable App";
+      scene.userData.disposed = true;
       // Dispose scene
       scene.traverse((obj) => {
         const m = obj as THREE.Mesh;
@@ -486,52 +701,57 @@ function Game() {
 
   // Update HUD when state changes
   useEffect(() => {
-    if (state === "LEVEL_1") {
+    if (isAuthRestoring) {
+      document.title = "Restoring Session";
+    } else if (state === "REGISTRATION") {
+      document.title = "Synchronization Portal";
+    } else if (state === "WEBCAM_VERIFY") {
+      document.title = "Camera Verification";
+    } else if (state === "MENU") {
+      document.title = "Evaluation Dashboard";
+    } else if (state === "LEVEL_1") {
       setHudText("Level 1 — Collect the stars ★");
       document.title = "Cute Adventure";
     } else if (state === "LEVEL_2") {
       setHudText("Level 2 — Keep going...");
-      document.title = "Level 2";
+      document.title = "Cute Adventure Part 2";
     } else if (state === "LEVEL_3") {
-      setHudText("L3VEL_3 — ???");
+      setHudText("Level 3 — Watch your step");
+      document.title = "Level 3";
+    } else if (state === "LEVEL_4") {
+      setHudText("LEVEL 4");
+      document.title = "I SEE YOU";
+    } else if (state === "LEVEL_5") {
+      setHudText("L5VEL_5 — ???");
       document.title = "...";
     } else if (state === "SURVEY") {
       document.title = "Alpha Test Evaluation";
+    } else if (state === "THANKS") {
+      document.title = "System Terminated";
     }
-  }, [state]);
+  }, [isAuthRestoring, state]);
 
-  // ---- Survey typewriter for Q4 ----
   useEffect(() => {
-    if (!q3Answered) return;
-    // ============================================================
-    // Drop-in: external IP geolocation API can be wired here.
-    // Example: fetch('https://ipapi.co/json').then(r => r.json()).then(d => setCity(d.city))
-    // ============================================================
-    const playerCity = "your city"; // <-- replace with fetched city
-    const os = detectOS();
-    const fullText = `Are you comfortable sitting in ${playerCity} right now behind your ${os} system? Look behind you.`;
-    let i = 0;
-    setQ4Text("");
-    const interval = window.setInterval(() => {
-      i++;
-      setQ4Text(fullText.slice(0, i));
-      if (i >= fullText.length) {
-        window.clearInterval(interval);
-        // 2 seconds after typewriter completes -> final scare
-        window.setTimeout(() => {
-          setCollapse(true);
-          if (typeof window.triggerFinalAudioScare === "function") {
-            try {
-              window.triggerFinalAudioScare();
-            } catch {
-              /* noop */
-            }
-          }
-        }, 2000);
-      }
-    }, 55);
-    return () => window.clearInterval(interval);
-  }, [q3Answered]);
+    if (state !== "LEVEL_4") return;
+
+    let stream: MediaStream | null = null;
+    let cancelled = false;
+    navigator.mediaDevices
+      ?.getUserMedia({ video: true, audio: false })
+      .then((cameraStream) => {
+        if (cancelled) {
+          cameraStream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        stream = cameraStream;
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+      stream?.getTracks().forEach((track) => track.stop());
+    };
+  }, [state]);
 
   // ---- Global hook for audio scare ----
   useEffect(() => {
@@ -551,6 +771,13 @@ function Game() {
     };
   }, []);
 
+  const isGameActive =
+    state !== "REGISTRATION" &&
+    state !== "WEBCAM_VERIFY" &&
+    state !== "MENU" &&
+    state !== "SURVEY" &&
+    state !== "THANKS";
+
   return (
     <div
       ref={wrapperRef}
@@ -558,15 +785,94 @@ function Game() {
         collapse ? "final-collapse" : ""
       }`}
     >
+      {/* Starting backgrounds */}
+      {(state === "REGISTRATION" || state === "WEBCAM_VERIFY" || state === "MENU") && <Background />}
+
+      {isAuthRestoring && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/40 p-6 font-mono text-white">
+          <div className="rounded-xl border border-white/10 bg-black/60 px-5 py-4 text-xs uppercase tracking-widest backdrop-blur-xl">
+            Restoring local session...
+          </div>
+        </div>
+      )}
+
+      {/* Starting registration portal */}
+      {!isAuthRestoring && state === "REGISTRATION" && (
+        <Registration
+          onComplete={async (profile) => {
+            const session = await registerWithBackend(profile);
+            setPlayerProfile(session.profile);
+            setAuthToken(session.token);
+            setState("WEBCAM_VERIFY");
+          }}
+        />
+      )}
+
+      {!isAuthRestoring && state === "WEBCAM_VERIFY" && playerProfile && (
+        <WebcamVerification
+          userId={playerProfile.id}
+          onComplete={() => setState("MENU")}
+        />
+      )}
+
+      {/* Main Menu Dashboard */}
+      {state === "MENU" && playerProfile && (
+        <MainMenu
+          profile={playerProfile}
+          authToken={authToken}
+          onStartGame={() => setState("LEVEL_1")}
+          onReset={() => {
+            clearAuthSession();
+            setPlayerProfile(null);
+            setAuthToken(null);
+            setState("REGISTRATION");
+          }}
+        />
+      )}
+
       {/* Game canvas mount */}
-      {state !== "SURVEY" && (
-        <div ref={mountRef} className="absolute inset-0">
+      {isGameActive && (
+        <div ref={mountRef} className="absolute inset-0" style={{ touchAction: "none", overscrollBehavior: "none" }}>
           {/* HUD */}
           <div className="pointer-events-none absolute left-4 top-4 z-10 rounded-md bg-black/40 px-3 py-2 font-mono text-sm text-white">
             <div>{hudText}</div>
-            <div className="text-yellow-300">★ {collected}</div>
-            <div className="mt-1 text-xs opacity-70">WASD / Arrows · Space to jump</div>
+            <div className="text-yellow-300 flex items-center gap-1.5">
+              <span>★ {collected}</span>
+              {playerProfile && (
+                <span
+                  className="ml-2 text-[9px] px-1.5 py-0.5 rounded border border-white/10 text-white font-mono uppercase font-bold"
+                  style={{
+                    backgroundColor: playerProfile.avatarColor,
+                    boxShadow: `0 0 8px ${playerProfile.avatarColor}`,
+                  }}
+                >
+                  {playerProfile.username}
+                </span>
+              )}
+            </div>
+            <div className="mt-1 text-xs opacity-70">{isMobile ? "Joystick · Jump button → controls" : "WASD / Arrows · Space to jump"}</div>
+            {state === "LEVEL_4" && (
+              <div className="mt-2 flex items-center gap-2 text-[10px] uppercase tracking-wider text-red-300">
+                <span className="h-2 w-2 rounded-full bg-red-500 shadow-[0_0_10px_#ef4444]" />
+                Camera stream active
+              </div>
+            )}
           </div>
+
+          {/* Mobile controls overlay */}
+          <MobileControls
+            controlsRef={mobileControlsRef}
+            visible={isMobile}
+          />
+
+          {/* Level 3: very short "people_looking.webp" flash */}
+          {state === "LEVEL_3" && showPeopleLooking && (
+            <img
+              src="/people_looking.webp"
+              alt=""
+              className="pointer-events-none absolute inset-0 z-30 h-full w-full object-cover opacity-90"
+            />
+          )}
 
           {/* Level 3 matrix log overlay */}
           {state === "LEVEL_3" && (
@@ -585,92 +891,74 @@ function Game() {
         </div>
       )}
 
+      {/* Smooth fade between levels */}
+      <div
+        className={`pointer-events-none absolute inset-0 z-40 bg-black transition-opacity duration-700 ease-in-out ${
+          levelTransition ? "opacity-100" : "opacity-0"
+        }`}
+      />
+
       {/* Survey phase */}
       {state === "SURVEY" && (
-        <div className="absolute inset-0 z-30 flex items-center justify-center bg-slate-100 p-6">
-          <div className="w-full max-w-2xl rounded-xl border border-slate-300 bg-white p-8 shadow-2xl">
-            <div className="mb-6 border-b border-slate-200 pb-4">
-              <h1 className="text-2xl font-semibold text-slate-800">
-                Alpha Test Evaluation Questionnaire
+        <Survey
+          userId={playerProfile?.id}
+          playerIP={playerActualIP}
+          cameraCount={attachedCamerasCount}
+          micCount={attachedMicrophonesCount}
+          isHeadphones={isUsingHeadphones}
+          onComplete={() => {
+            setCollapse(true);
+            if (typeof window.triggerFinalAudioScare === "function") {
+              try {
+                window.triggerFinalAudioScare();
+              } catch {
+                /* noop */
+              }
+            }
+          }}
+          onGlitchEnd={() => {
+            setCollapse(false);
+            setState("THANKS");
+          }}
+        />
+      )}
+
+      {/* Thanks page */}
+      {state === "THANKS" && (
+        <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-slate-950 p-6 font-mono text-white select-none">
+          <div className="relative max-w-xl text-center space-y-8 animate-fade-in p-8 border border-white/10 rounded-2xl bg-slate-900/60 backdrop-blur-xl shadow-[0_0_50px_rgba(0,0,0,0.8)]">
+            <div className="absolute inset-0 rounded-2xl overflow-hidden pointer-events-none opacity-5 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[size:100%_4px,3px_100%]" />
+
+            <div className="space-y-4">
+              <h1 className="text-3xl font-extrabold tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-pink-400 via-purple-400 to-sky-400 drop-shadow-[0_0_15px_rgba(168,85,247,0.4)]">
+                CONNECTION TERMINATED
               </h1>
-              <p className="mt-1 text-sm text-slate-500">
-                Thank you for participating. Your feedback helps us improve our product.
-              </p>
+              <div className="h-[2px] w-24 bg-gradient-to-r from-transparent via-purple-500 to-transparent mx-auto" />
             </div>
 
-            <form className="space-y-6" onSubmit={(e) => e.preventDefault()}>
-              {/* Q1 */}
-              <fieldset>
-                <legend className="mb-2 font-medium text-slate-700">
-                  1. Rate the 3D physics responsiveness
-                </legend>
-                <div className="flex gap-4 text-sm text-slate-600">
-                  {["Excellent", "Stable", "Poor"].map((opt) => (
-                    <label key={opt} className="flex items-center gap-2">
-                      <input type="radio" name="q1" value={opt} />
-                      {opt}
-                    </label>
-                  ))}
-                </div>
-              </fieldset>
+            <p className="text-slate-300 text-sm leading-relaxed max-w-md mx-auto">
+              Your evaluation questionnaire has been successfully uploaded to the server. The
+              synchronization bridge has been completely dismantled.
+            </p>
 
-              {/* Q2 */}
-              <fieldset>
-                <legend className="mb-2 font-medium text-slate-700">
-                  2. Which assets did you find most appealing?
-                </legend>
-                <div className="flex flex-col gap-2 text-sm text-slate-600">
-                  {["Character Models", "3D Environments", "Lighting Effects"].map((opt) => (
-                    <label key={opt} className="flex items-center gap-2">
-                      <input type="checkbox" name="q2" value={opt} />
-                      {opt}
-                    </label>
-                  ))}
-                </div>
-              </fieldset>
+            <div className="p-4 rounded-lg bg-black/40 border border-white/5 inline-block">
+              <span className="text-xl font-bold tracking-wider text-green-400 animate-pulse">
+                Thanks for playing a game.
+              </span>
+            </div>
 
-              {/* Q3 */}
-              <fieldset>
-                <legend className="mb-2 font-medium text-slate-700">
-                  3. Are you currently alone in the room?
-                </legend>
-                <div className="flex gap-4 text-sm text-slate-600">
-                  {["Yes", "No"].map((opt) => (
-                    <label key={opt} className="flex items-center gap-2">
-                      <input
-                        type="radio"
-                        name="q3"
-                        value={opt}
-                        onChange={() => setQ3Answered(true)}
-                      />
-                      {opt}
-                    </label>
-                  ))}
-                </div>
-              </fieldset>
-
-              {/* Q4 */}
-              <fieldset>
-                <legend className="mb-2 font-medium text-slate-700">
-                  4. Additional comments
-                </legend>
-                <textarea
-                  readOnly
-                  value={q4Text}
-                  rows={4}
-                  className="w-full resize-none rounded-md border border-slate-300 bg-slate-50 p-3 font-mono text-sm text-slate-800"
-                  placeholder="Awaiting question..."
-                />
-              </fieldset>
-
+            <div className="pt-4">
               <button
-                type="submit"
-                disabled
-                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white opacity-60"
+                type="button"
+                onClick={() => {
+                  setCollapse(false);
+                  setState(authToken ? "MENU" : "REGISTRATION");
+                }}
+                className="px-6 py-2.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-xs font-semibold uppercase tracking-wider text-slate-400 hover:text-white transition-all duration-300 active:scale-95 shadow-[0_0_15px_rgba(255,255,255,0.05)] cursor-pointer"
               >
-                Submit Evaluation
+                Re-enter Portal
               </button>
-            </form>
+            </div>
           </div>
         </div>
       )}
