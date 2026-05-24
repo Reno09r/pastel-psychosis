@@ -6,7 +6,7 @@ export const Route = createFileRoute("/")({
   component: Game,
 });
 
-type GameState = "LEVEL_1" | "LEVEL_2" | "LEVEL_3" | "SURVEY";
+type GameState = "LEVEL_1" | "LEVEL_2" | "LEVEL_3" | "LEVEL_4" | "LEVEL_5" | "SURVEY";
 
 // Detect OS from userAgent
 function detectOS(): string {
@@ -38,6 +38,7 @@ function Game() {
   const [collected, setCollected] = useState(0);
 
   // Survey state
+  const [surveyPage, setSurveyPage] = useState(1);
   const [q3Answered, setQ3Answered] = useState(false);
   const [q4Text, setQ4Text] = useState("");
   const [collapse, setCollapse] = useState(false);
@@ -113,11 +114,11 @@ function Game() {
 
     // Build different layout per level
     const buildLevel = (level: GameState) => {
-      if (level === "LEVEL_1") {
-        scene.background = new THREE.Color("#ffd1e8");
-        scene.fog = null;
-        ambient.intensity = 0.9;
-        dir.intensity = 1.0;
+      if (level === "LEVEL_1" || level === "LEVEL_2") {
+        scene.background = new THREE.Color(level === "LEVEL_1" ? "#ffd1e8" : "#fbcfe8");
+        scene.fog = level === "LEVEL_1" ? null : new THREE.FogExp2(0xfbcfe8, 0.02);
+        ambient.intensity = level === "LEVEL_1" ? 0.9 : 0.7;
+        dir.intensity = level === "LEVEL_1" ? 1.0 : 0.8;
         addPlatform(0, 0, 0, 6, 6, "#bbf7d0");
         addPlatform(6, 1, 0, 4, 4, "#fde68a");
         addPlatform(12, 2, 0, 4, 4, "#bae6fd");
@@ -135,9 +136,13 @@ function Game() {
           );
           trunk.position.set(-4 + i * 6, 0.9, -3);
           leaves.position.set(-4 + i * 6, 2.2, -3);
+          if (level === "LEVEL_2" && Math.random() > 0.5) {
+            leaves.material.color.setHex(0x000000); // Glitchy trees
+            trunk.material.color.setHex(0x1a1a1a);
+          }
           scene.add(trunk, leaves);
         }
-      } else if (level === "LEVEL_2") {
+      } else if (level === "LEVEL_3") {
         scene.background = new THREE.Color("#1a1a1a");
         scene.fog = new THREE.FogExp2(0x1a1a1a, 0.05);
         ambient.intensity = 0.3;
@@ -160,6 +165,32 @@ function Game() {
           spike.userData.spike = true;
           scene.add(spike);
           spikes.push(spike);
+        }
+      } else if (level === "LEVEL_4") {
+        scene.background = new THREE.Color("#0f172a"); // Dark slate
+        scene.fog = new THREE.FogExp2(0x0f172a, 0.04);
+        ambient.intensity = 0.4;
+        dir.intensity = 0.5;
+        // Weird platforms
+        for (let i = 0; i < 8; i++) {
+          addPlatform(i * 4, i * 0.5, Math.sin(i) * 2, 3, 3, "#334155");
+        }
+        // Big floating eyes
+        for (let i = 0; i < 15; i++) {
+          const sclera = new THREE.Mesh(
+            new THREE.SphereGeometry(1.5, 16, 16),
+            new THREE.MeshStandardMaterial({ color: 0xffffff })
+          );
+          const pupil = new THREE.Mesh(
+            new THREE.SphereGeometry(0.4, 16, 16),
+            new THREE.MeshBasicMaterial({ color: 0x000000 })
+          );
+          pupil.position.z = 1.3;
+          sclera.add(pupil);
+          sclera.position.set(Math.random() * 30, 4 + Math.random() * 10, -10 + Math.random() * 20);
+          sclera.userData.isEye = true;
+          scene.add(sclera);
+          eyes.push(sclera);
         }
       } else {
         scene.background = new THREE.Color("#1a0000");
@@ -188,6 +219,7 @@ function Game() {
     // Stars
     const stars: THREE.Mesh[] = [];
     const spikes: THREE.Mesh[] = [];
+    const eyes: THREE.Mesh[] = [];
 
     const addStars = (positions: [number, number, number][]) => {
       positions.forEach(([x, y, z]) => {
@@ -208,7 +240,7 @@ function Game() {
     };
 
     buildLevel(stateRef.current);
-    if (stateRef.current === "LEVEL_1") {
+    if (stateRef.current === "LEVEL_1" || stateRef.current === "LEVEL_2") {
       addStars([
         [0, 2, 0],
         [6, 3, 0],
@@ -216,13 +248,21 @@ function Game() {
         [18, 5, 0],
         [24, 6, 0],
       ]);
-    } else if (stateRef.current === "LEVEL_2") {
+    } else if (stateRef.current === "LEVEL_3") {
       addStars([
         [5, 3, 0],
         [10, 3, 0],
         [15, 3, 0],
         [25, 3, 0],
         [30, 3, 0],
+      ]);
+    } else if (stateRef.current === "LEVEL_4") {
+      addStars([
+        [0, 2, 0],
+        [4, 3, 2],
+        [8, 4, -2],
+        [12, 5, 0],
+        [20, 6, 0],
       ]);
     }
 
@@ -290,18 +330,18 @@ function Game() {
     };
     window.addEventListener("resize", onResize);
 
-    // Level 2 fourth-wall title flipping
-    if (stateRef.current === "LEVEL_2") {
+    // Level 3 fourth-wall title flipping
+    if (stateRef.current === "LEVEL_3") {
       const phrases = ["HELP ME", "IT IS WATCHING", "GET OUT", "BEHIND YOU"];
       titleFlipInterval = window.setInterval(() => {
         document.title = phrases[Math.floor(Math.random() * phrases.length)];
-        window.setTimeout(() => (document.title = "Level 2"), 120);
+        window.setTimeout(() => (document.title = "Level 3"), 120);
       }, 1800);
     }
 
-    // Level 3 matrix logs
+    // Level 5 matrix logs
     let logInterval: number | null = null;
-    if (stateRef.current === "LEVEL_3") {
+    if (stateRef.current === "LEVEL_5") {
       const os = detectOS();
       const res = `${window.screen.width}x${window.screen.height}`;
       const cores = navigator.hardwareConcurrency ?? "?";
@@ -359,8 +399,12 @@ function Game() {
       renderer.domElement.style.opacity = "0";
       window.setTimeout(() => {
         // advance state machine
-        if (stateRef.current === "LEVEL_3") {
+        if (stateRef.current === "LEVEL_5") {
           setState("SURVEY");
+        } else if (stateRef.current === "LEVEL_4") {
+          setState("LEVEL_5");
+        } else if (stateRef.current === "LEVEL_3") {
+          setState("LEVEL_4");
         } else if (stateRef.current === "LEVEL_2") {
           setState("LEVEL_3");
         } else {
@@ -455,7 +499,7 @@ function Game() {
           // knockback
           velocity.y = 0.3;
           player.position.x -= 1.5;
-          if (stateRef.current === "LEVEL_3") {
+          if (stateRef.current === "LEVEL_3" || stateRef.current === "LEVEL_4" || stateRef.current === "LEVEL_5") {
             killAndAdvance();
           }
         }
@@ -463,7 +507,7 @@ function Game() {
 
       // Fall death
       if (player.position.y < -15) {
-        if (stateRef.current === "LEVEL_3") {
+        if (stateRef.current === "LEVEL_3" || stateRef.current === "LEVEL_4" || stateRef.current === "LEVEL_5") {
           killAndAdvance();
         } else {
           player.position.set(0, 5, 0);
@@ -471,28 +515,49 @@ function Game() {
         }
       }
 
-      // Level 1 glitch
+      // Level 1: normal end
       if (stateRef.current === "LEVEL_1") {
-        const now = performance.now();
-        if (now - lastGlitch > 10000 + Math.random() * 5000) {
-          lastGlitch = now;
-          triggerGlitch();
-        }
-        // Advance after collecting all
         if (collectedCount >= 5 && !dead) {
           dead = true;
-          setHudText("Something feels wrong...");
+          setHudText("Loading Level 2...");
           window.setTimeout(() => setState("LEVEL_2"), 1500);
         }
       }
 
-      // Level 2: end of level collapse
+      // Level 2: little glitching then normal transition
       if (stateRef.current === "LEVEL_2") {
+        const now = performance.now();
+        if (now - lastGlitch > 8000 + Math.random() * 6000) {
+          lastGlitch = now;
+          triggerGlitch();
+        }
+        if (collectedCount >= 5 && !dead) {
+          dead = true;
+          setHudText("Something feels wrong...");
+          window.setTimeout(() => setState("LEVEL_3"), 1500);
+        }
+      }
+
+      // Level 3: end of level collapse
+      if (stateRef.current === "LEVEL_3") {
         if (collectedCount >= 5 && !collapseStarted) {
           collapseStarted = true;
           setHudText("...");
           platforms.forEach((p) => (p.falling = true));
-          window.setTimeout(() => setState("LEVEL_3"), 2500);
+          window.setTimeout(() => setState("LEVEL_4"), 2500);
+        }
+      }
+
+      // Level 4 eyes look at player
+      if (stateRef.current === "LEVEL_4") {
+        for (const eye of eyes) {
+          eye.lookAt(player.position.x, player.position.y, player.position.z);
+        }
+        if (collectedCount >= 5 && !collapseStarted) {
+          collapseStarted = true;
+          setHudText("RUN");
+          platforms.forEach((p) => (p.falling = true));
+          window.setTimeout(() => setState("LEVEL_5"), 1500);
         }
       }
 
@@ -549,9 +614,15 @@ function Game() {
       document.title = "Cute Adventure";
     } else if (state === "LEVEL_2") {
       setHudText("Level 2 — Keep going...");
-      document.title = "Level 2";
+      document.title = "Cute Adventure Part 2";
     } else if (state === "LEVEL_3") {
-      setHudText("L3VEL_3 — ???");
+      setHudText("Level 3 — Watch your step");
+      document.title = "Level 3";
+    } else if (state === "LEVEL_4") {
+      setHudText("LEVEL 4");
+      document.title = "I SEE YOU";
+    } else if (state === "LEVEL_5") {
+      setHudText("L5VEL_5 — ???");
       document.title = "...";
     } else if (state === "SURVEY") {
       document.title = "Alpha Test Evaluation";
@@ -560,7 +631,7 @@ function Game() {
 
   // ---- Survey typewriter for Q4 ----
   useEffect(() => {
-    if (!q3Answered) return;
+    if (surveyPage !== 4) return;
     // ============================================================
     // Drop-in: external IP geolocation API can be wired here.
     // Example: fetch('https://ipapi.co/json').then(r => r.json()).then(d => setCity(d.city))
@@ -589,7 +660,7 @@ function Game() {
       }
     }, 55);
     return () => window.clearInterval(interval);
-  }, [q3Answered]);
+  }, [surveyPage]);
 
   // ---- Global hook for audio scare ----
   useEffect(() => {
@@ -658,74 +729,94 @@ function Game() {
 
             <form className="space-y-6" onSubmit={(e) => e.preventDefault()}>
               {/* Q1 */}
-              <fieldset>
-                <legend className="mb-2 font-medium text-slate-700">
-                  1. Rate the 3D physics responsiveness
-                </legend>
-                <div className="flex gap-4 text-sm text-slate-600">
-                  {["Excellent", "Stable", "Poor"].map((opt) => (
-                    <label key={opt} className="flex items-center gap-2">
-                      <input type="radio" name="q1" value={opt} />
-                      {opt}
-                    </label>
-                  ))}
-                </div>
-              </fieldset>
+              {surveyPage === 1 && (
+                <fieldset>
+                  <legend className="mb-2 font-medium text-slate-700">
+                    1. Rate the 3D physics responsiveness
+                  </legend>
+                  <div className="flex gap-4 text-sm text-slate-600">
+                    {["Excellent", "Stable", "Poor"].map((opt) => (
+                      <label key={opt} className="flex items-center gap-2">
+                        <input type="radio" name="q1" value={opt} onClick={() => setTimeout(() => setSurveyPage(2), 300)} />
+                        {opt}
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+              )}
 
               {/* Q2 */}
-              <fieldset>
-                <legend className="mb-2 font-medium text-slate-700">
-                  2. Which assets did you find most appealing?
-                </legend>
-                <div className="flex flex-col gap-2 text-sm text-slate-600">
-                  {["Character Models", "3D Environments", "Lighting Effects"].map((opt) => (
-                    <label key={opt} className="flex items-center gap-2">
-                      <input type="checkbox" name="q2" value={opt} />
-                      {opt}
-                    </label>
-                  ))}
-                </div>
-              </fieldset>
+              {surveyPage === 2 && (
+                <fieldset>
+                  <legend className="mb-2 font-medium text-slate-700">
+                    2. Which assets did you find most appealing?
+                  </legend>
+                  <div className="flex flex-col gap-2 text-sm text-slate-600">
+                    {["Character Models", "3D Environments", "Lighting Effects"].map((opt) => (
+                      <label key={opt} className="flex items-center gap-2">
+                        <input type="checkbox" name="q2" value={opt} />
+                        {opt}
+                      </label>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSurveyPage(3)}
+                    className="mt-6 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white"
+                  >
+                    Next
+                  </button>
+                </fieldset>
+              )}
 
               {/* Q3 */}
-              <fieldset>
-                <legend className="mb-2 font-medium text-slate-700">
-                  3. Are you currently alone in the room?
-                </legend>
-                <div className="flex gap-4 text-sm text-slate-600">
-                  {["Yes", "No"].map((opt) => (
-                    <label key={opt} className="flex items-center gap-2">
-                      <input
-                        type="radio"
-                        name="q3"
-                        value={opt}
-                        onChange={() => setQ3Answered(true)}
-                      />
-                      {opt}
-                    </label>
-                  ))}
-                </div>
-              </fieldset>
+              {surveyPage === 3 && (
+                <fieldset>
+                  <legend className="mb-2 font-medium text-slate-700">
+                    3. Are you currently alone in the room?
+                  </legend>
+                  <div className="flex gap-4 text-sm text-slate-600">
+                    {["Yes", "No"].map((opt) => (
+                      <label key={opt} className="flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name="q3"
+                          value={opt}
+                          onChange={() => {
+                            setQ3Answered(true);
+                            setTimeout(() => setSurveyPage(4), 500);
+                          }}
+                        />
+                        {opt}
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+              )}
 
               {/* Q4 */}
-              <fieldset>
-                <legend className="mb-2 font-medium text-slate-700">4. Additional comments</legend>
-                <textarea
-                  readOnly
-                  value={q4Text}
-                  rows={4}
-                  className="w-full resize-none rounded-md border border-slate-300 bg-slate-50 p-3 font-mono text-sm text-slate-800"
-                  placeholder="Awaiting question..."
-                />
-              </fieldset>
+              {surveyPage === 4 && (
+                <fieldset>
+                  <legend className="mb-2 font-medium text-slate-700">4. Additional comments</legend>
+                  <textarea
+                    readOnly
+                    value={q4Text}
+                    rows={4}
+                    className="w-full resize-none rounded-md border border-slate-300 bg-slate-50 p-3 font-mono text-sm text-slate-800"
+                    placeholder="Awaiting question..."
+                  />
+                </fieldset>
+              )}
 
-              <button
-                type="submit"
-                disabled
-                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white opacity-60"
-              >
-                Submit Evaluation
-              </button>
+              {surveyPage === 4 && (
+                <button
+                  type="submit"
+                  disabled
+                  className="mt-4 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white opacity-60"
+                >
+                  Submit Evaluation
+                </button>
+              )}
             </form>
           </div>
         </div>
