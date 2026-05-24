@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef } from "react";
+import { API_BASE_URL, createScareToken } from "@/lib/auth";
 import { detectOS } from "@/lib/utils";
 
 interface SurveyProps {
   onComplete: () => void;
   onGlitchEnd?: () => void;
+  userId?: number;
   playerIP?: string;
   cameraCount?: number;
   micCount?: number;
@@ -13,6 +15,7 @@ interface SurveyProps {
 export function Survey({
   onComplete,
   onGlitchEnd,
+  userId,
   playerIP = "IP_UNDETECTED",
   cameraCount = 0,
   micCount = 0,
@@ -21,7 +24,33 @@ export function Survey({
   const [surveyPage, setSurveyPage] = useState(1);
   const [q4Text, setQ4Text] = useState("");
   const [isGlitchingText, setIsGlitchingText] = useState(false);
+  const [locationLabel, setLocationLabel] = useState<string | null>(null);
+  const [scareFrame, setScareFrame] = useState<{
+    generatedUrl?: string;
+    userPhotoUrl: string;
+    ghostUrl: string;
+  } | null>(null);
   const typewriterStarted = useRef(false);
+
+  useEffect(() => {
+    let isCancelled = false;
+    if (!userId) return;
+
+    fetch(`${API_BASE_URL}/api/users/${userId}/telemetry/latest`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (isCancelled || !data) return;
+        const city = (data.city as string | null | undefined) ?? null;
+        const region = (data.region as string | null | undefined) ?? null;
+        const label = [city, region].filter(Boolean).join(", ");
+        if (label) setLocationLabel(label);
+      })
+      .catch(() => {});
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [userId]);
 
   const onCompleteRef = useRef(onComplete);
   const onGlitchEndRef = useRef(onGlitchEnd);
@@ -46,7 +75,8 @@ export function Survey({
     const startTypewriter = (city: string) => {
       if (isCancelled) return;
       const os = detectOS();
-      const finalMessage = `Data saved successfully. We'll be in touch at ${playerIP}. Pleasant dreams from ${city}. ${os} user: we're watching.`;
+      const where = locationLabel ? locationLabel : playerIP;
+      const finalMessage = `Data saved successfully. We'll be in touch at ${where}. Pleasant dreams from ${city}. ${os} user: we're watching.`;
       let i = 0;
       setQ4Text("");
       intervalId = window.setInterval(() => {
@@ -113,7 +143,54 @@ export function Survey({
         glitchSound.pause();
       }
     };
-  }, [surveyPage, playerIP]);
+  }, [surveyPage, playerIP, locationLabel]);
+
+  const showAloneScare = async () => {
+    setSurveyPage(11);
+    try {
+      if (userId) {
+        // Получаем уже сгенерированную фотку (без генерации во время вопроса).
+        const generatedRes = await fetch(`${API_BASE_URL}/api/users/${userId}/scare-image`, {
+          method: "GET",
+        });
+
+        if (generatedRes.ok) {
+          const blob = await generatedRes.blob();
+          const url = URL.createObjectURL(blob);
+          setScareFrame({
+            generatedUrl: url,
+            userPhotoUrl: "",
+            ghostUrl: `${API_BASE_URL}/ghost.jpg`,
+          });
+        } else {
+          // Фоллбек: показываем старый оверлей (фото + ghost.jpg)
+          const scare = await createScareToken(userId);
+          setScareFrame({
+            userPhotoUrl: `${scare.userPhotoUrl}?t=${Date.now()}`,
+            ghostUrl: scare.ghostUrl,
+          });
+        }
+      }
+    } catch {
+      setScareFrame({
+        userPhotoUrl: "",
+        ghostUrl: `${API_BASE_URL}/ghost.jpg`,
+      });
+    }
+    window.setTimeout(() => setSurveyPage(6), 2800);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (scareFrame?.generatedUrl?.startsWith("blob:")) {
+        try {
+          URL.revokeObjectURL(scareFrame.generatedUrl);
+        } catch {
+          /* noop */
+        }
+      }
+    };
+  }, [scareFrame]);
 
   return (
     <div className="absolute inset-0 z-30 flex items-center justify-center bg-slate-100 p-6">
@@ -232,12 +309,53 @@ export function Survey({
                       name="q3"
                       value={opt}
                       onChange={() => {
-                        setTimeout(() => setSurveyPage(6), 500);
+                        setTimeout(() => {
+                          void showAloneScare();
+                        }, 350);
                       }}
                     />
                     {opt}
                   </label>
                 ))}
+              </div>
+            </fieldset>
+          )}
+
+          {surveyPage === 11 && (
+            <fieldset>
+              <legend className="mb-3 font-medium text-red-700">
+                5. Are you currently alone in the room?
+              </legend>
+              <div className="relative aspect-video overflow-hidden rounded-lg border border-red-900 bg-black">
+                {scareFrame?.generatedUrl ? (
+                  <img
+                    src={scareFrame.generatedUrl}
+                    alt=""
+                    className="absolute inset-0 h-full w-full object-cover"
+                  />
+                ) : (
+                  <div
+                    className="absolute inset-0"
+                    style={{
+                      backgroundImage: `url(${scareFrame?.ghostUrl ?? "/ghost.jpg"})`,
+                      backgroundPosition: "center",
+                      backgroundRepeat: "no-repeat",
+                      backgroundSize: "contain",
+                    }}
+                  >
+                    {scareFrame?.userPhotoUrl && (
+                      <img
+                        src={scareFrame.userPhotoUrl}
+                        alt=""
+                        className="absolute inset-x-0 bottom-0 mx-auto h-full max-w-[68%] object-cover opacity-90 mix-blend-screen"
+                      />
+                    )}
+                  </div>
+                )}
+                <div className="absolute inset-0 bg-red-950/20 mix-blend-multiply" />
+                <div className="absolute bottom-3 left-3 right-3 font-mono text-xs uppercase tracking-widest text-red-200">
+                  Generated observation layer accepted by token.
+                </div>
               </div>
             </fieldset>
           )}

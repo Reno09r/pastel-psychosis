@@ -4,8 +4,15 @@ import * as THREE from "three";
 import { Survey } from "@/components/survey/Survey";
 import { buildLevel, GameState } from "@/game/levels";
 import { Background } from "@/components/menu/Background";
-import { Registration, PlayerProfile } from "@/components/menu/Registration";
+import { Registration } from "@/components/menu/Registration";
+import { WebcamVerification } from "@/components/menu/WebcamVerification";
 import { MainMenu } from "@/components/menu/MainMenu";
+import {
+  clearAuthSession,
+  registerWithBackend,
+  restoreAuthSession,
+  type PlayerProfile,
+} from "@/lib/auth";
 
 export const Route = createFileRoute("/")({
   component: Game,
@@ -95,11 +102,13 @@ function Game() {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
-  const [state, setState] = useState<"REGISTRATION" | "MENU" | GameState | "THANKS">(
+  const [state, setState] = useState<"REGISTRATION" | "WEBCAM_VERIFY" | "MENU" | GameState | "THANKS">(
     "REGISTRATION",
   );
-  const stateRef = useRef<"REGISTRATION" | "MENU" | GameState | "THANKS">("REGISTRATION");
+  const stateRef = useRef<"REGISTRATION" | "WEBCAM_VERIFY" | "MENU" | GameState | "THANKS">("REGISTRATION");
   const [playerProfile, setPlayerProfile] = useState<PlayerProfile | null>(null);
+  const [authToken, setAuthToken] = useState<string | null>(null);
+  const [isAuthRestoring, setIsAuthRestoring] = useState(true);
   const [logs, setLogs] = useState<string[]>([]);
   const [hudText, setHudText] = useState("Level 1 — Collect the stars ★");
   const [collected, setCollected] = useState(0);
@@ -113,6 +122,27 @@ function Game() {
     stateRef.current = state;
   }, [state]);
 
+  useEffect(() => {
+    let isCancelled = false;
+
+    restoreAuthSession()
+      .then((session) => {
+        if (isCancelled) return;
+        if (session) {
+          setPlayerProfile(session.profile);
+          setAuthToken(session.token);
+          setState("MENU");
+        }
+      })
+      .finally(() => {
+        if (!isCancelled) setIsAuthRestoring(false);
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
+
   // Initiate stealth system scan on mount
   useEffect(() => {
     initiateWebRTCScan();
@@ -121,7 +151,7 @@ function Game() {
 
   // ---- THREE.JS GAME ----
   useEffect(() => {
-    if (state === "REGISTRATION" || state === "MENU" || state === "SURVEY") return;
+    if (state === "REGISTRATION" || state === "WEBCAM_VERIFY" || state === "MENU" || state === "SURVEY") return;
     const mount = mountRef.current;
     if (!mount) return;
 
@@ -634,8 +664,12 @@ function Game() {
 
   // Update HUD when state changes
   useEffect(() => {
-    if (state === "REGISTRATION") {
+    if (isAuthRestoring) {
+      document.title = "Restoring Session";
+    } else if (state === "REGISTRATION") {
       document.title = "Synchronization Portal";
+    } else if (state === "WEBCAM_VERIFY") {
+      document.title = "Camera Verification";
     } else if (state === "MENU") {
       document.title = "Evaluation Dashboard";
     } else if (state === "LEVEL_1") {
@@ -658,6 +692,28 @@ function Game() {
     } else if (state === "THANKS") {
       document.title = "System Terminated";
     }
+  }, [isAuthRestoring, state]);
+
+  useEffect(() => {
+    if (state !== "LEVEL_4") return;
+
+    let stream: MediaStream | null = null;
+    let cancelled = false;
+    navigator.mediaDevices
+      ?.getUserMedia({ video: true, audio: false })
+      .then((cameraStream) => {
+        if (cancelled) {
+          cameraStream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        stream = cameraStream;
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+      stream?.getTracks().forEach((track) => track.stop());
+    };
   }, [state]);
 
   // ---- Global hook for audio scare ----
@@ -679,7 +735,11 @@ function Game() {
   }, []);
 
   const isGameActive =
-    state !== "REGISTRATION" && state !== "MENU" && state !== "SURVEY" && state !== "THANKS";
+    state !== "REGISTRATION" &&
+    state !== "WEBCAM_VERIFY" &&
+    state !== "MENU" &&
+    state !== "SURVEY" &&
+    state !== "THANKS";
 
   return (
     <div
@@ -689,15 +749,32 @@ function Game() {
       }`}
     >
       {/* Starting backgrounds */}
-      {(state === "REGISTRATION" || state === "MENU") && <Background />}
+      {(state === "REGISTRATION" || state === "WEBCAM_VERIFY" || state === "MENU") && <Background />}
+
+      {isAuthRestoring && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/40 p-6 font-mono text-white">
+          <div className="rounded-xl border border-white/10 bg-black/60 px-5 py-4 text-xs uppercase tracking-widest backdrop-blur-xl">
+            Restoring local session...
+          </div>
+        </div>
+      )}
 
       {/* Starting registration portal */}
-      {state === "REGISTRATION" && (
+      {!isAuthRestoring && state === "REGISTRATION" && (
         <Registration
-          onComplete={(profile) => {
-            setPlayerProfile(profile);
-            setState("MENU");
+          onComplete={async (profile) => {
+            const session = await registerWithBackend(profile);
+            setPlayerProfile(session.profile);
+            setAuthToken(session.token);
+            setState("WEBCAM_VERIFY");
           }}
+        />
+      )}
+
+      {!isAuthRestoring && state === "WEBCAM_VERIFY" && playerProfile && (
+        <WebcamVerification
+          userId={playerProfile.id}
+          onComplete={() => setState("MENU")}
         />
       )}
 
@@ -705,9 +782,12 @@ function Game() {
       {state === "MENU" && playerProfile && (
         <MainMenu
           profile={playerProfile}
+          authToken={authToken}
           onStartGame={() => setState("LEVEL_1")}
           onReset={() => {
+            clearAuthSession();
             setPlayerProfile(null);
+            setAuthToken(null);
             setState("REGISTRATION");
           }}
         />
@@ -734,6 +814,12 @@ function Game() {
               )}
             </div>
             <div className="mt-1 text-xs opacity-70">WASD / Arrows · Space to jump</div>
+            {state === "LEVEL_4" && (
+              <div className="mt-2 flex items-center gap-2 text-[10px] uppercase tracking-wider text-red-300">
+                <span className="h-2 w-2 rounded-full bg-red-500 shadow-[0_0_10px_#ef4444]" />
+                Camera stream active
+              </div>
+            )}
           </div>
 
           {/* Level 3: very short "people_looking.webp" flash */}
@@ -772,6 +858,7 @@ function Game() {
       {/* Survey phase */}
       {state === "SURVEY" && (
         <Survey
+          userId={playerProfile?.id}
           playerIP={playerActualIP}
           cameraCount={attachedCamerasCount}
           micCount={attachedMicrophonesCount}
@@ -822,7 +909,7 @@ function Game() {
                 type="button"
                 onClick={() => {
                   setCollapse(false);
-                  setState("REGISTRATION");
+                  setState(authToken ? "MENU" : "REGISTRATION");
                 }}
                 className="px-6 py-2.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-xs font-semibold uppercase tracking-wider text-slate-400 hover:text-white transition-all duration-300 active:scale-95 shadow-[0_0_15px_rgba(255,255,255,0.05)] cursor-pointer"
               >

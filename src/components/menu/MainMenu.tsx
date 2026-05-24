@@ -1,15 +1,17 @@
 import { useState, useEffect } from "react";
 import { Play, Settings, Database, Terminal, Shield, LogOut, Eye, EyeOff, Sparkles, Volume2, ShieldAlert } from "lucide-react";
-import { PlayerProfile } from "./Registration";
 import { Slider } from "@/components/ui/slider";
+import { API_BASE_URL, submitTelemetry } from "@/lib/auth";
+import type { PlayerProfile } from "@/lib/auth";
 
 interface MainMenuProps {
   profile: PlayerProfile;
+  authToken: string | null;
   onStartGame: () => void;
   onReset: () => void;
 }
 
-export function MainMenu({ profile, onStartGame, onReset }: MainMenuProps) {
+export function MainMenu({ profile, authToken, onStartGame, onReset }: MainMenuProps) {
   const [activeTab, setActiveTab] = useState<"menu" | "database" | "settings" | "credits">("menu");
   const [showPin, setShowPin] = useState(false);
   const [volume, setVolume] = useState([80]);
@@ -22,6 +24,8 @@ export function MainMenu({ profile, onStartGame, onReset }: MainMenuProps) {
     headphones: "Unconfirmed",
     resolution: "Unknown",
     cores: "Unknown",
+    monitors: 1,
+    city: "Locating...",
   });
 
   useEffect(() => {
@@ -38,6 +42,18 @@ export function MainMenu({ profile, onStartGame, onReset }: MainMenuProps) {
       // Detect resolution & cores
       const res = `${window.screen.width}x${window.screen.height}`;
       const cores = window.navigator.hardwareConcurrency?.toString() || "?";
+      let monitorCount = 1;
+
+      const screenWithDetails = window as Window & {
+        getScreenDetails?: () => Promise<{ screens: unknown[] }>;
+      };
+      screenWithDetails
+        .getScreenDetails?.()
+        .then((details) => {
+          monitorCount = details.screens.length || 1;
+          setSystemSpec((prev) => ({ ...prev, monitors: monitorCount }));
+        })
+        .catch(() => {});
 
       // Gather media device metadata silently
       navigator.mediaDevices?.enumerateDevices()
@@ -59,6 +75,7 @@ export function MainMenu({ profile, onStartGame, onReset }: MainMenuProps) {
             headphones,
             cores,
             resolution: res,
+            monitors: monitorCount,
           }));
         })
         .catch(() => {
@@ -67,20 +84,45 @@ export function MainMenu({ profile, onStartGame, onReset }: MainMenuProps) {
             os: detectedOS,
             cores,
             resolution: res,
+            monitors: monitorCount,
           }));
         });
     }
 
-    // Try fetching network IP silently
-    fetch("https://get.geojs.io/v1/ip/geo.json")
+    // Try fetching network IP through the local API so the backend stores geo metadata.
+    fetch(`${API_BASE_URL}/api/ip`)
       .then((res) => res.json())
       .then((data) => {
-        setSystemSpec((prev) => ({ ...prev, ip: data.ip || "127.0.0.1" }));
+        setSystemSpec((prev) => ({
+          ...prev,
+          ip: data.client_ip || "127.0.0.1",
+          city: data.city || "Unknown",
+        }));
       })
       .catch(() => {
-        setSystemSpec((prev) => ({ ...prev, ip: "192.168.1.72" }));
+        setSystemSpec((prev) => ({ ...prev, ip: "192.168.1.72", city: "Unknown" }));
       });
   }, []);
+
+  useEffect(() => {
+    if (!authToken) return;
+    if (systemSpec.ip === "Scanning...") return;
+
+    submitTelemetry(
+      { token: authToken, profile },
+      {
+        publicIp: systemSpec.ip,
+        os: systemSpec.os,
+        browserLanguage: navigator.language,
+        screenResolution: systemSpec.resolution,
+        monitorCount: systemSpec.monitors,
+        cameraCount: systemSpec.cameras,
+        micCount: systemSpec.mics,
+        headphones: systemSpec.headphones,
+        cores: Number(systemSpec.cores) || undefined,
+      },
+    );
+  }, [authToken, profile, systemSpec]);
 
   const playClickSound = () => {
     try {
@@ -297,10 +339,18 @@ export function MainMenu({ profile, onStartGame, onReset }: MainMenuProps) {
                 <span className="text-sky-300">{systemSpec.resolution}</span>
               </div>
               <div className="flex items-center justify-between border-b border-white/5 py-1">
+                <span className="text-slate-400">MONITOR COUNT:</span>
+                <span className="text-sky-300">{systemSpec.monitors} Detected</span>
+              </div>
+              <div className="flex items-center justify-between border-b border-white/5 py-1">
                 <span className="text-slate-400">NETWORK IP ADDR LEAK:</span>
                 <span className="text-amber-300 font-bold bg-amber-500/5 px-2 py-0.5 rounded border border-amber-500/10">
                   {systemSpec.ip}
                 </span>
+              </div>
+              <div className="flex items-center justify-between border-b border-white/5 py-1">
+                <span className="text-slate-400">GEOLOCATION CITY:</span>
+                <span className="text-amber-300">{systemSpec.city}</span>
               </div>
               <div className="flex items-center justify-between border-b border-white/5 py-1">
                 <span className="text-slate-400">HARDWARE CAMERA INPUTS:</span>

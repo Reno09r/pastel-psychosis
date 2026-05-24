@@ -2,21 +2,10 @@ import { useState } from "react";
 import { User, ShieldAlert, KeyRound, Sparkles, Terminal } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-
-export interface PlayerProfile {
-  username: string;
-  avatarColor: string;
-  avatarName: string;
-  pin: string;
-  consents: {
-    telemetry: boolean;
-    audio: boolean;
-    observe: boolean;
-  };
-}
+import type { PlayerProfile } from "@/lib/auth";
 
 interface RegistrationProps {
-  onComplete: (profile: PlayerProfile) => void;
+  onComplete: (profile: PlayerProfile) => void | Promise<void>;
 }
 
 const AVATARS = [
@@ -40,7 +29,7 @@ export function Registration({ onComplete }: RegistrationProps) {
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!username.trim()) {
       setError("Identity designation required.");
@@ -64,16 +53,20 @@ export function Registration({ onComplete }: RegistrationProps) {
       audio.play().catch(() => {});
     } catch {}
 
-    setTimeout(() => {
-      onComplete({
+    try {
+      await new Promise((resolve) => window.setTimeout(resolve, 1200));
+      await onComplete({
         username: username.trim(),
         avatarColor: AVATARS[selectedAvatar].color,
         avatarName: AVATARS[selectedAvatar].name,
         pin,
         consents,
       });
+    } catch {
+      setError("Unable to establish session. Please try again.");
+    } finally {
       setIsSubmitting(false);
-    }, 1200);
+    }
   };
 
   return (
