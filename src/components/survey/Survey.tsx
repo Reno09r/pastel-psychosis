@@ -9,16 +9,19 @@ interface SurveyProps {
   isHeadphones?: boolean;
 }
 
-export function Survey({ onComplete, playerIP = "IP_UNDETECTED", cameraCount = 0, micCount = 0, isHeadphones = false }: SurveyProps) {
+export function Survey({
+  onComplete,
+  playerIP = "IP_UNDETECTED",
+  cameraCount = 0,
+  micCount = 0,
+  isHeadphones = false,
+}: SurveyProps) {
   const [surveyPage, setSurveyPage] = useState(1);
   const [q4Text, setQ4Text] = useState("");
 
   // ---- Survey typewriter for final message ----
   useEffect(() => {
     if (surveyPage !== 10) return;
-    
-    const glitchSound = new Audio("/glitch.mp3");
-    glitchSound.play().catch(console.error);
 
     let isCancelled = false;
     let intervalId: number;
@@ -36,14 +39,16 @@ export function Survey({ onComplete, playerIP = "IP_UNDETECTED", cameraCount = 0
           window.clearInterval(intervalId);
           window.setTimeout(() => {
             if (!isCancelled) onComplete();
+            const glitchSound = new Audio("/glitch.mp3");
+            glitchSound.play().catch(console.error);
           }, 3000);
         }
       }, 35);
     };
 
     fetch("https://get.geojs.io/v1/ip/geo.json")
-      .then(res => res.json())
-      .then(data => {
+      .then((res) => res.json())
+      .then((data) => {
         if (!isCancelled) startTypewriter(data.city || "your room");
       })
       .catch(() => {
@@ -186,9 +191,7 @@ export function Survey({ onComplete, playerIP = "IP_UNDETECTED", cameraCount = 0
           {/* Q4 becomes Q6 */}
           {surveyPage === 6 && (
             <fieldset>
-              <legend className="mb-2 font-medium text-slate-700">
-                6. Additional comments
-              </legend>
+              <legend className="mb-2 font-medium text-slate-700">6. Additional comments</legend>
               <textarea
                 readOnly
                 value={q4Text}
@@ -203,10 +206,16 @@ export function Survey({ onComplete, playerIP = "IP_UNDETECTED", cameraCount = 0
           {surveyPage === 7 && (
             <fieldset>
               <legend className="mb-2 font-medium text-slate-700 text-red-600">
-                7. We detected {cameraCount} connected camera(s) on your system. Why do you need so many?
+                7. We detected {cameraCount} connected camera(s) on your system. Why do you need so
+                many?
               </legend>
               <div className="flex flex-col gap-2 text-sm text-slate-600">
-                {["Personal security", "Work/content creation", "Just connected", "That's a lot..."].map((opt) => (
+                {[
+                  "Personal security",
+                  "Work/content creation",
+                  "Just connected",
+                  "That's a lot...",
+                ].map((opt) => (
                   <label key={opt} className="flex items-center gap-2">
                     <input
                       type="radio"
@@ -225,7 +234,8 @@ export function Survey({ onComplete, playerIP = "IP_UNDETECTED", cameraCount = 0
           {surveyPage === 8 && (
             <fieldset>
               <legend className="mb-2 font-medium text-slate-700 text-red-600">
-                8. Your audio is set to {isHeadphones ? "HEADPHONES" : "SPEAKERS"}. Are you listening alone?
+                8. Your audio is set to {isHeadphones ? "HEADPHONES" : "SPEAKERS"}. Are you
+                listening alone?
               </legend>
               <div className="flex gap-4 text-sm text-slate-600">
                 {["Yes", "No", "Why do you know this?"].map((opt) => (
