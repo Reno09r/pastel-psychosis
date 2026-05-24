@@ -251,8 +251,8 @@ function Game() {
     };
     const onMouseMove = (e: MouseEvent) => {
       if (isRightMouseDown) {
-        cameraAngleY -= e.movementX * 0.01;
-        cameraAngleX -= e.movementY * 0.01;
+        cameraAngleY -= e.movementX * 0.003;
+        cameraAngleX -= e.movementY * 0.003;
         cameraAngleX = Math.max(0.1, Math.min(Math.PI / 2 - 0.1, cameraAngleX));
       }
     };
