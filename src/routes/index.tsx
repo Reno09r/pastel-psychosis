@@ -177,7 +177,7 @@ function Game() {
     scene.background = new THREE.Color("#ffd1e8");
 
     const camera = new THREE.PerspectiveCamera(50, W / H, 0.1, 500);
-    camera.position.set(0, 8, 14);
+    camera.position.set(8, 8, 14);
     camera.rotation.x = -Math.PI / 2;
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -473,13 +473,11 @@ function Game() {
     const animate = () => {
       raf = requestAnimationFrame(animate);
 
-      // Input movement (camera relative)
-      const speed = 0.1;
-      let moveX = 0;
-      let moveZ = 0;
-
-      if (keys["a"] || keys["arrowleft"]) moveX = -speed * 10;
-      else if (keys["d"] || keys["arrowright"]) moveX = speed * 10;
+      // Input movement
+      const speed = 0.05;
+      if (keys["a"] || keys["arrowleft"]) velocity.x = -speed * 10;
+      else if (keys["d"] || keys["arrowright"]) velocity.x = speed * 10;
+      else velocity.x = 0;
 
       if (keys["w"] || keys["arrowup"]) moveZ = -speed * 10;
       else if (keys["s"] || keys["arrowdown"]) moveZ = speed * 10;
@@ -657,7 +655,7 @@ function Game() {
 
       camTarget.set(cx, cy, cz);
       camera.position.lerp(camTarget, 0.08);
-      camera.lookAt(player.position.x, player.position.y, player.position.z);
+      camera.rotation.x = -Math.PI / 2;
 
       renderer.render(scene, camera);
     };
