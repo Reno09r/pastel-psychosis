@@ -26,11 +26,10 @@ export const buildLevel = (
     return m;
   };
 
-  if (level === "LEVEL_1" || level === "LEVEL_2") {
-    scene.background = new THREE.Color(level === "LEVEL_1" ? "#ffd1e8" : "#fbcfe8");
-    scene.fog = level === "LEVEL_1" ? null : new THREE.FogExp2(0xfbcfe8, 0.02);
-    ambient.intensity = level === "LEVEL_1" ? 0.9 : 0.7;
-    dir.intensity = level === "LEVEL_1" ? 1.0 : 0.8;
+  if (level === "LEVEL_1") {
+    scene.background = new THREE.Color("#ffd1e8");
+    ambient.intensity = 0.9;
+    dir.intensity = 1.0;
     addPlatform(0, 0, 0, 6, 6, "#bbf7d0");
     addPlatform(6, 1, 0, 4, 4, "#fde68a");
     addPlatform(12, 2, 0, 4, 4, "#bae6fd");
@@ -48,7 +47,36 @@ export const buildLevel = (
       );
       trunk.position.set(-4 + i * 6, 0.9, -3);
       leaves.position.set(-4 + i * 6, 2.2, -3);
-      if (level === "LEVEL_2" && Math.random() > 0.5) {
+      scene.add(trunk, leaves);
+    }
+  } else if (level === "LEVEL_2") {
+    scene.background = new THREE.Color("#fbcfe8");
+    scene.fog = new THREE.FogExp2(0xfbcfe8, 0.02);
+    ambient.intensity = 0.8;
+    dir.intensity = 0.9;
+    
+    // A slightly different, still normal arrangement
+    addPlatform(0, 0, 0, 6, 6, "#bbf7d0");
+    addPlatform(6, 0, -3, 4, 4, "#f87171");
+    addPlatform(12, 1, -2, 4, 4, "#fde68a");
+    addPlatform(18, 2, 0, 4, 4, "#bae6fd");
+    addPlatform(23, 2.5, 3, 4, 4, "#c084fc");
+    addPlatform(29, 3, 0, 6, 6, "#ddd6fe");
+
+    // Trees, some slightly corrupted
+    for (let i = 0; i < 8; i++) {
+      const trunk = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.2, 0.3, 1.2, 8),
+        new THREE.MeshStandardMaterial({ color: "#92400e" })
+      );
+      const leaves = new THREE.Mesh(
+        new THREE.ConeGeometry(0.8, 1.6, 8),
+        new THREE.MeshStandardMaterial({ color: "#16a34a" })
+      );
+      trunk.position.set(-1 + i * 4, 0.9, Math.random() < 0.5 ? -3 : 3);
+      leaves.position.set(trunk.position.x, 2.2, trunk.position.z);
+      
+      if (Math.random() > 0.6) {
         (leaves.material as THREE.MeshStandardMaterial).color.setHex(0x000000); 
         (trunk.material as THREE.MeshStandardMaterial).color.setHex(0x1a1a1a);
       }

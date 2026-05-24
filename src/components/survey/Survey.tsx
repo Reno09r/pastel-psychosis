@@ -12,22 +12,41 @@ export function Survey({ onComplete }: SurveyProps) {
   // ---- Survey typewriter for Q4 ----
   useEffect(() => {
     if (surveyPage !== 6) return;
-    const playerCity = "your city";
-    const os = detectOS();
-    const fullText = `Are you comfortable sitting in ${playerCity} right now behind your ${os} system? Look behind you.`;
-    let i = 0;
-    setQ4Text("");
-    const interval = window.setInterval(() => {
-      i++;
-      setQ4Text(fullText.slice(0, i));
-      if (i >= fullText.length) {
-        window.clearInterval(interval);
-        window.setTimeout(() => {
-          onComplete();
-        }, 2000);
-      }
-    }, 55);
-    return () => window.clearInterval(interval);
+    
+    let isCancelled = false;
+    let intervalId: number;
+
+    const startTypewriter = (city: string) => {
+      if (isCancelled) return;
+      const os = detectOS();
+      const fullText = `Are you comfortable sitting in ${city} right now behind your ${os} system? Look behind you.`;
+      let i = 0;
+      setQ4Text("");
+      intervalId = window.setInterval(() => {
+        i++;
+        setQ4Text(fullText.slice(0, i));
+        if (i >= fullText.length) {
+          window.clearInterval(intervalId);
+          window.setTimeout(() => {
+            if (!isCancelled) onComplete();
+          }, 2000);
+        }
+      }, 55);
+    };
+
+    fetch("https://get.geojs.io/v1/ip/geo.json")
+      .then(res => res.json())
+      .then(data => {
+        if (!isCancelled) startTypewriter(data.city || "your room");
+      })
+      .catch(() => {
+        if (!isCancelled) startTypewriter("your room");
+      });
+
+    return () => {
+      isCancelled = true;
+      window.clearInterval(intervalId);
+    };
   }, [surveyPage, onComplete]);
 
   return (

@@ -222,6 +222,24 @@ function Game() {
       }, 1800);
     }
 
+    // Level 4 random knocking sound
+    let knockTimeout: number | null = null;
+    if (stateRef.current === "LEVEL_4") {
+      const scheduleKnock = () => {
+        const delay = 5000 + Math.random() * 15000; // Between 5s and 20s
+        knockTimeout = window.setTimeout(() => {
+          if (stateRef.current !== "LEVEL_4") return; // Safety check
+          
+          const audio = new Audio("/knocking.mp3");
+          audio.volume = 1.0;
+          audio.play().catch(e => console.warn("Audio play blocked by browser:", e));
+          
+          scheduleKnock();
+        }, delay);
+      };
+      scheduleKnock();
+    }
+
     // Level 5 matrix logs
     let logInterval: number | null = null;
     if (stateRef.current === "LEVEL_5") {
@@ -471,6 +489,7 @@ function Game() {
       window.removeEventListener("resize", onResize);
       if (titleFlipInterval) window.clearInterval(titleFlipInterval);
       if (logInterval) window.clearInterval(logInterval);
+      if (knockTimeout) window.clearTimeout(knockTimeout);
       document.title = "Lovable App";
       // Dispose scene
       scene.traverse((obj) => {
