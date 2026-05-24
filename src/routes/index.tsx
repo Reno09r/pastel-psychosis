@@ -60,8 +60,7 @@ function Game() {
 
     const camera = new THREE.PerspectiveCamera(50, W / H, 0.1, 500);
     camera.position.set(0, 8, 14);
-    camera.lookAt(0, 0, 0);
-    camera.rotateOnWorldAxis(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
+    camera.rotation.x = -Math.PI / 2;
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -153,7 +152,11 @@ function Game() {
             new THREE.ConeGeometry(0.4, 1.2, 6),
             new THREE.MeshStandardMaterial({ color: "#7f1d1d" }),
           );
-          spike.position.set(i * 5 + (Math.random() - 0.5), (i % 2) + 0.9, (Math.random() - 0.5) * 2);
+          spike.position.set(
+            i * 5 + (Math.random() - 0.5),
+            (i % 2) + 0.9,
+            (Math.random() - 0.5) * 2,
+          );
           spike.userData.spike = true;
           scene.add(spike);
           spikes.push(spike);
@@ -190,7 +193,11 @@ function Game() {
       positions.forEach(([x, y, z]) => {
         const star = new THREE.Mesh(
           new THREE.OctahedronGeometry(0.4),
-          new THREE.MeshStandardMaterial({ color: "#fde047", emissive: "#facc15", emissiveIntensity: 0.6 }),
+          new THREE.MeshStandardMaterial({
+            color: "#fde047",
+            emissive: "#facc15",
+            emissiveIntensity: 0.6,
+          }),
         );
         star.position.set(x, y, z);
         star.userData.collected = false;
@@ -229,6 +236,37 @@ function Game() {
     };
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
+
+    // Mouse Controls for Camera
+    let cameraAngleX = Math.PI / 4;
+    let cameraAngleY = Math.PI / 4;
+    let isRightMouseDown = false;
+    let cameraDistance = 18;
+
+    const onMouseDown = (e: MouseEvent) => {
+      if (e.button === 2) isRightMouseDown = true;
+    };
+    const onMouseUp = (e: MouseEvent) => {
+      if (e.button === 2) isRightMouseDown = false;
+    };
+    const onMouseMove = (e: MouseEvent) => {
+      if (isRightMouseDown) {
+        cameraAngleY -= e.movementX * 0.01;
+        cameraAngleX -= e.movementY * 0.01;
+        cameraAngleX = Math.max(0.1, Math.min(Math.PI / 2 - 0.1, cameraAngleX));
+      }
+    };
+    const onContextMenu = (e: Event) => e.preventDefault();
+    const onWheel = (e: WheelEvent) => {
+      cameraDistance += e.deltaY * 0.02;
+      cameraDistance = Math.max(2, Math.min(40, cameraDistance));
+    };
+
+    window.addEventListener("mousedown", onMouseDown);
+    window.addEventListener("mouseup", onMouseUp);
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("contextmenu", onContextMenu);
+    window.addEventListener("wheel", onWheel, { passive: true });
 
     const velocity = new THREE.Vector3(0, 0, 0);
     let onGround = false;
@@ -335,15 +373,23 @@ function Game() {
     const animate = () => {
       raf = requestAnimationFrame(animate);
 
-      // Input movement
-      const speed = 0.10;
-      if (keys["a"] || keys["arrowleft"]) velocity.x = -speed * 10;
-      else if (keys["d"] || keys["arrowright"]) velocity.x = speed * 10;
-      else velocity.x = 0;
+      // Input movement (camera relative)
+      const speed = 0.1;
+      let moveX = 0;
+      let moveZ = 0;
 
-      if (keys["w"] || keys["arrowup"]) velocity.z = -speed * 10;
-      else if (keys["s"] || keys["arrowdown"]) velocity.z = speed * 10;
-      else velocity.z = 0;
+      if (keys["a"] || keys["arrowleft"]) moveX = -speed * 10;
+      else if (keys["d"] || keys["arrowright"]) moveX = speed * 10;
+
+      if (keys["w"] || keys["arrowup"]) moveZ = -speed * 10;
+      else if (keys["s"] || keys["arrowdown"]) moveZ = speed * 10;
+
+      // Apply camera rotation to movement vector
+      const cosY = Math.cos(cameraAngleY);
+      const sinY = Math.sin(cameraAngleY);
+
+      velocity.x = moveX * cosY + moveZ * sinY;
+      velocity.z = -moveX * sinY + moveZ * cosY;
 
       if ((keys[" "] || keys["space"]) && onGround) {
         velocity.y = 0.45;
@@ -370,10 +416,10 @@ function Game() {
         const pw = (p.mesh.geometry as THREE.BoxGeometry).parameters.width / 2;
         const pd = (p.mesh.geometry as THREE.BoxGeometry).parameters.depth / 2;
         if (
-          player.position.x > px - pw &&
-          player.position.x < px + pw &&
-          player.position.z > pz - pd &&
-          player.position.z < pz + pd &&
+          player.position.x - 0.5 < px + pw &&
+          player.position.x + 0.5 > px - pw &&
+          player.position.z - 0.5 < pz + pd &&
+          player.position.z + 0.5 > pz - pd &&
           player.position.y - 0.5 <= py + 0.3 &&
           player.position.y - 0.5 >= py - 0.2 &&
           velocity.y <= 0
@@ -450,8 +496,14 @@ function Game() {
         }
       }
 
-      // Camera lerp follow (isometric side-scroll)
-      camTarget.set(player.position.x + 8, player.position.y + 8, player.position.z + 14);
+      // Camera lerp follow (isometric side-scroll with rotation)
+      const cx =
+        player.position.x + cameraDistance * Math.cos(cameraAngleX) * Math.sin(cameraAngleY);
+      const cy = player.position.y + cameraDistance * Math.sin(cameraAngleX);
+      const cz =
+        player.position.z + cameraDistance * Math.cos(cameraAngleX) * Math.cos(cameraAngleY);
+
+      camTarget.set(cx, cy, cz);
       camera.position.lerp(camTarget, 0.08);
       camera.lookAt(player.position.x, player.position.y, player.position.z);
 
@@ -463,6 +515,11 @@ function Game() {
       cancelAnimationFrame(raf);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("mousedown", onMouseDown);
+      window.removeEventListener("mouseup", onMouseUp);
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("contextmenu", onContextMenu);
+      window.removeEventListener("wheel", onWheel);
       window.removeEventListener("resize", onResize);
       if (titleFlipInterval) window.clearInterval(titleFlipInterval);
       if (logInterval) window.clearInterval(logInterval);
@@ -652,9 +709,7 @@ function Game() {
 
               {/* Q4 */}
               <fieldset>
-                <legend className="mb-2 font-medium text-slate-700">
-                  4. Additional comments
-                </legend>
+                <legend className="mb-2 font-medium text-slate-700">4. Additional comments</legend>
                 <textarea
                   readOnly
                   value={q4Text}
