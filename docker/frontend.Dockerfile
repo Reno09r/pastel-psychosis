@@ -27,11 +27,11 @@ FROM oven/bun:1-slim AS runner
 WORKDIR /app
 
 # Copy built output and server dependencies
-COPY --from=builder /app/.output ./.output
+COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
 
 EXPOSE 3000
 
 # TanStack Start / Vinxi output is a Node-compatible server
-CMD ["bun", "run", ".output/server/index.mjs"]
+CMD ["bun", "run", "dist/server/index.js"]
