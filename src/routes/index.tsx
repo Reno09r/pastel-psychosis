@@ -60,7 +60,7 @@ function Game() {
 
     const camera = new THREE.PerspectiveCamera(50, W / H, 0.1, 500);
     camera.position.set(8, 8, 14);
-    camera.lookAt(0, 0, 0);
+    camera.rotation.x = -Math.PI / 2;
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -335,7 +335,7 @@ function Game() {
       raf = requestAnimationFrame(animate);
 
       // Input movement
-      const speed = 0.15;
+      const speed = 0.05;
       if (keys["a"] || keys["arrowleft"]) velocity.x = -speed * 10;
       else if (keys["d"] || keys["arrowright"]) velocity.x = speed * 10;
       else velocity.x = 0;
@@ -452,7 +452,7 @@ function Game() {
       // Camera lerp follow (isometric side-scroll)
       camTarget.set(player.position.x + 8, player.position.y + 8, player.position.z + 14);
       camera.position.lerp(camTarget, 0.08);
-      camera.lookAt(player.position.x, player.position.y, player.position.z);
+      camera.rotation.x = -Math.PI / 2;
 
       renderer.render(scene, camera);
     };
