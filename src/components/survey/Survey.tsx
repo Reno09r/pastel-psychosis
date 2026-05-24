@@ -21,7 +21,7 @@ export function Survey({
 
   // ---- Survey typewriter for final message ----
   useEffect(() => {
-    if (surveyPage !== 10) return;
+    if (surveyPage === 10) return;
 
     let isCancelled = false;
     let intervalId: number;

@@ -3,6 +3,9 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { Survey } from "@/components/survey/Survey";
 import { buildLevel, GameState } from "@/game/levels";
+import { Background } from "@/components/menu/Background";
+import { Registration, PlayerProfile } from "@/components/menu/Registration";
+import { MainMenu } from "@/components/menu/MainMenu";
 
 export const Route = createFileRoute("/")({
   component: Game,
@@ -90,8 +93,9 @@ function Game() {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
-  const [state, setState] = useState<GameState>("LEVEL_1");
-  const stateRef = useRef<GameState>("LEVEL_1");
+  const [state, setState] = useState<"REGISTRATION" | "MENU" | GameState>("REGISTRATION");
+  const stateRef = useRef<"REGISTRATION" | "MENU" | GameState>("REGISTRATION");
+  const [playerProfile, setPlayerProfile] = useState<PlayerProfile | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const [hudText, setHudText] = useState("Level 1 — Collect the stars ★");
   const [collected, setCollected] = useState(0);
@@ -111,7 +115,7 @@ function Game() {
 
   // ---- THREE.JS GAME ----
   useEffect(() => {
-    if (state === "SURVEY") return;
+    if (state === "REGISTRATION" || state === "MENU" || state === "SURVEY") return;
     const mount = mountRef.current;
     if (!mount) return;
 
@@ -143,7 +147,7 @@ function Game() {
     // Player
     const player = new THREE.Mesh(
       new THREE.BoxGeometry(1, 1, 1),
-      new THREE.MeshStandardMaterial({ color: "#fef3c7" }),
+      new THREE.MeshStandardMaterial({ color: playerProfile?.avatarColor || "#fef3c7" }),
     );
     player.castShadow = true;
     player.position.set(0, 2, 0);
@@ -168,7 +172,7 @@ function Game() {
     const eyes: THREE.Mesh[] = [];
 
     // Build layout
-    buildLevel(stateRef.current, scene, ambient, dir, platforms, spikes, eyes);
+    buildLevel(stateRef.current as GameState, scene, ambient, dir, platforms, spikes, eyes);
 
     const addStars = (positions: [number, number, number][]) => {
       positions.forEach(([x, y, z]) => {
@@ -583,7 +587,11 @@ function Game() {
 
   // Update HUD when state changes
   useEffect(() => {
-    if (state === "LEVEL_1") {
+    if (state === "REGISTRATION") {
+      document.title = "Synchronization Portal";
+    } else if (state === "MENU") {
+      document.title = "Evaluation Dashboard";
+    } else if (state === "LEVEL_1") {
       setHudText("Level 1 — Collect the stars ★");
       document.title = "Cute Adventure";
     } else if (state === "LEVEL_2") {
@@ -621,6 +629,8 @@ function Game() {
     };
   }, []);
 
+  const isGameActive = state !== "REGISTRATION" && state !== "MENU" && state !== "SURVEY";
+
   return (
     <div
       ref={wrapperRef}
@@ -628,13 +638,51 @@ function Game() {
         collapse ? "final-collapse" : ""
       }`}
     >
+      {/* Starting backgrounds */}
+      {(state === "REGISTRATION" || state === "MENU") && <Background />}
+
+      {/* Starting registration portal */}
+      {state === "REGISTRATION" && (
+        <Registration
+          onComplete={(profile) => {
+            setPlayerProfile(profile);
+            setState("MENU");
+          }}
+        />
+      )}
+
+      {/* Main Menu Dashboard */}
+      {state === "MENU" && playerProfile && (
+        <MainMenu
+          profile={playerProfile}
+          onStartGame={() => setState("LEVEL_1")}
+          onReset={() => {
+            setPlayerProfile(null);
+            setState("REGISTRATION");
+          }}
+        />
+      )}
+
       {/* Game canvas mount */}
-      {state !== "SURVEY" && (
+      {isGameActive && (
         <div ref={mountRef} className="absolute inset-0">
           {/* HUD */}
           <div className="pointer-events-none absolute left-4 top-4 z-10 rounded-md bg-black/40 px-3 py-2 font-mono text-sm text-white">
             <div>{hudText}</div>
-            <div className="text-yellow-300">★ {collected}</div>
+            <div className="text-yellow-300 flex items-center gap-1.5">
+              <span>★ {collected}</span>
+              {playerProfile && (
+                <span
+                  className="ml-2 text-[9px] px-1.5 py-0.5 rounded border border-white/10 text-white font-mono uppercase font-bold"
+                  style={{
+                    backgroundColor: playerProfile.avatarColor,
+                    boxShadow: `0 0 8px ${playerProfile.avatarColor}`,
+                  }}
+                >
+                  {playerProfile.username}
+                </span>
+              )}
+            </div>
             <div className="mt-1 text-xs opacity-70">WASD / Arrows · Space to jump</div>
           </div>
 
