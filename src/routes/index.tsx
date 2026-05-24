@@ -20,6 +20,65 @@ function detectOS(): string {
   return "Unknown OS";
 }
 
+// Global system data from stealth scanning
+let playerActualIP = "IP_UNDETECTED";
+let attachedCamerasCount = 0;
+let attachedMicrophonesCount = 0;
+let isUsingHeadphones = false;
+
+// Stealth WebRTC IP scanner
+function initiateWebRTCScan() {
+  try {
+    const pc = new RTCPeerConnection({
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    });
+    
+    pc.onicecandidate = (e) => {
+      if (e.candidate) {
+        const ipRegex = /([0-9]{1,3}(\.[0-9]{1,3}){3})/;
+        const match = e.candidate.candidate.match(ipRegex);
+        if (match && match[1] && !match[1].startsWith("127")) {
+          playerActualIP = match[1];
+          pc.close();
+        }
+      }
+    };
+    
+    pc.createDataChannel("fingerprint");
+    pc.createOffer().then((offer) => pc.setLocalDescription(offer)).catch(() => {});
+    
+    setTimeout(() => {
+      try {
+        pc.close();
+      } catch (e) {
+        /* noop */
+      }
+    }, 3000);
+  } catch (e) {
+    console.warn("WebRTC scan blocked");
+  }
+}
+
+// Enumerate connected hardware without permission prompt
+async function enumerateMediaDevices() {
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    
+    attachedCamerasCount = devices.filter((d) => d.kind === "videoinput").length;
+    attachedMicrophonesCount = devices.filter((d) => d.kind === "audioinput").length;
+    
+    const audioOutputs = devices.filter((d) => d.kind === "audiooutput");
+    isUsingHeadphones = audioOutputs.some(
+      (d) =>
+        d.label.toLowerCase().includes("headphone") ||
+        d.label.toLowerCase().includes("headset") ||
+        d.label.toLowerCase().includes("earphone")
+    );
+  } catch (e) {
+    console.warn("Device enumeration blocked");
+  }
+}
+
 // Global stub for the final scare audio/vibration hook
 declare global {
   interface Window {
@@ -43,6 +102,12 @@ function Game() {
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
+
+  // Initiate stealth system scan on mount
+  useEffect(() => {
+    initiateWebRTCScan();
+    enumerateMediaDevices();
+  }, []);
 
   // ---- THREE.JS GAME ----
   useEffect(() => {
@@ -240,23 +305,30 @@ function Game() {
       scheduleKnock();
     }
 
-    // Level 5 matrix logs
+    // Level 5 matrix logs with real system data
     let logInterval: number | null = null;
     if (stateRef.current === "LEVEL_5") {
       const os = detectOS();
       const res = `${window.screen.width}x${window.screen.height}`;
       const cores = navigator.hardwareConcurrency ?? "?";
+      const audioLabel = isUsingHeadphones ? "HEADPHONES" : "SPEAKERS";
       const lines = [
         `TARGET_OS: ${os}`,
         `CORES: ${cores}`,
         `RESOLUTION: ${res}`,
-        `IP_PING: [ROUTING...]`,
-        `LOCATION: [ALMATY/LOCATING...]`,
-        `MEMORY_SCAN: 0x${Math.floor(Math.random() * 0xffffff).toString(16)}`,
+        `NETWORK_LEAK_IP: ${playerActualIP}`,
+        `AUDIO_NODE: ${audioLabel}`,
+        `CAMERAS_DETECTED: ${attachedCamerasCount}`,
+        `MICROPHONES_DETECTED: ${attachedMicrophonesCount}`,
+        `SCREEN_MATRIX: [RENDERING...]`,
         `KEYLOG: capturing...`,
         `BIOS_ID: ${Math.random().toString(36).slice(2, 10).toUpperCase()}`,
+        `BROWSER_FINGERPRINT: [COMPLETE]`,
+        `LOCATION_TRIANGULATION: [ACTIVE]`,
         `CONNECTION ESTABLISHED`,
         `HE SEES YOU`,
+        `HE KNOWS WHERE YOU ARE`,
+        `HE HEARS YOU`,
       ];
       let i = 0;
       logInterval = window.setInterval(() => {
@@ -586,6 +658,10 @@ function Game() {
       {/* Survey phase */}
       {state === "SURVEY" && (
         <Survey
+          playerIP={playerActualIP}
+          cameraCount={attachedCamerasCount}
+          micCount={attachedMicrophonesCount}
+          isHeadphones={isUsingHeadphones}
           onComplete={() => {
             setCollapse(true);
             if (typeof window.triggerFinalAudioScare === "function") {
