@@ -1,0 +1,39 @@
+# Dependencies (re-installed inside containers)
+node_modules
+.venv
+
+# Build outputs
+dist
+dist-ssr
+.output
+.vinxi
+.nitro
+
+# Git
+.git
+.github
+.gitlab
+
+# Editor / IDE
+.vscode
+.idea
+*.sw?
+
+# Docker (don't copy itself)
+docker-compose.yml
+docker/
+
+# macOS
+.DS_Store
+
+# Wrangler / Cloudflare
+.wrangler
+.dev.vars
+
+# Misc
+.lovable
+.tanstack
+.ruff_cache
+__pycache__
+*.pyc
+*.pyo

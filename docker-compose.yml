@@ -1,0 +1,43 @@
+services:
+  # ─── FastAPI Backend ───
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    container_name: pastel-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist SQLite database & uploaded videos between restarts
+      - backend-data:/app/backend/data
+    env_file:
+      - backend/.env
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ─── Vite / TanStack Start Frontend ───
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+    container_name: pastel-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      # Backend URL accessible from within the Docker network
+      - VITE_API_URL=http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  backend-data:
