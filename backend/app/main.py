@@ -381,7 +381,7 @@ async def generate_scare_image(user_id: int) -> ScareImageResponse:
     - возвращает base64 изображения
     """
     _get_user_by_id(user_id)
-    api_key = "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"
+    api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not set on backend")
 
