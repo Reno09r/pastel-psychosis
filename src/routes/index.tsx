@@ -382,7 +382,7 @@ function Game() {
           // knockback
           velocity.y = 0.3;
           player.position.x -= 1.5;
-          if (stateRef.current === "LEVEL_3" || stateRef.current === "LEVEL_4" || stateRef.current === "LEVEL_5") {
+          if (stateRef.current === "LEVEL_5") {
             killAndAdvance();
           }
         }
@@ -390,7 +390,7 @@ function Game() {
 
       // Fall death
       if (player.position.y < -15) {
-        if (stateRef.current === "LEVEL_3" || stateRef.current === "LEVEL_4" || stateRef.current === "LEVEL_5") {
+        if (stateRef.current === "LEVEL_5") {
           killAndAdvance();
         } else {
           player.position.set(0, 5, 0);
