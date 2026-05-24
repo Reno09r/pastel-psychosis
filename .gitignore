@@ -30,3 +30,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+.github
+.gitlab
+.github/
+.gitlab/
+.lovable/
+.tanstack/

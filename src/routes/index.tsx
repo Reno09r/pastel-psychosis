@@ -59,8 +59,9 @@ function Game() {
     scene.background = new THREE.Color("#ffd1e8");
 
     const camera = new THREE.PerspectiveCamera(50, W / H, 0.1, 500);
-    camera.position.set(8, 8, 14);
+    camera.position.set(0, 8, 14);
     camera.lookAt(0, 0, 0);
+    camera.rotateOnWorldAxis(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -335,7 +336,7 @@ function Game() {
       raf = requestAnimationFrame(animate);
 
       // Input movement
-      const speed = 0.15;
+      const speed = 0.10;
       if (keys["a"] || keys["arrowleft"]) velocity.x = -speed * 10;
       else if (keys["d"] || keys["arrowright"]) velocity.x = speed * 10;
       else velocity.x = 0;
