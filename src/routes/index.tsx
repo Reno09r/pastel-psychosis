@@ -1,12 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
+import { Survey } from "@/components/survey/Survey";
+import { buildLevel, GameState } from "@/game/levels";
 
 export const Route = createFileRoute("/")({
   component: Game,
 });
-
-type GameState = "LEVEL_1" | "LEVEL_2" | "LEVEL_3" | "LEVEL_4" | "LEVEL_5" | "SURVEY";
 
 // Detect OS from userAgent
 function detectOS(): string {
@@ -38,9 +38,6 @@ function Game() {
   const [collected, setCollected] = useState(0);
 
   // Survey state
-  const [surveyPage, setSurveyPage] = useState(1);
-  const [q3Answered, setQ3Answered] = useState(false);
-  const [q4Text, setQ4Text] = useState("");
   const [collapse, setCollapse] = useState(false);
 
   useEffect(() => {
@@ -99,127 +96,14 @@ function Game() {
     // Platforms
     type Platform = { mesh: THREE.Mesh; falling: boolean; vy: number };
     const platforms: Platform[] = [];
-    const addPlatform = (x: number, y: number, z: number, w = 4, d = 4, color = "#a7f3d0") => {
-      const m = new THREE.Mesh(
-        new THREE.BoxGeometry(w, 0.6, d),
-        new THREE.MeshStandardMaterial({ color }),
-      );
-      m.position.set(x, y, z);
-      m.receiveShadow = true;
-      m.castShadow = true;
-      scene.add(m);
-      platforms.push({ mesh: m, falling: false, vy: 0 });
-      return m;
-    };
-
-    // Build different layout per level
-    const buildLevel = (level: GameState) => {
-      if (level === "LEVEL_1" || level === "LEVEL_2") {
-        scene.background = new THREE.Color(level === "LEVEL_1" ? "#ffd1e8" : "#fbcfe8");
-        scene.fog = level === "LEVEL_1" ? null : new THREE.FogExp2(0xfbcfe8, 0.02);
-        ambient.intensity = level === "LEVEL_1" ? 0.9 : 0.7;
-        dir.intensity = level === "LEVEL_1" ? 1.0 : 0.8;
-        addPlatform(0, 0, 0, 6, 6, "#bbf7d0");
-        addPlatform(6, 1, 0, 4, 4, "#fde68a");
-        addPlatform(12, 2, 0, 4, 4, "#bae6fd");
-        addPlatform(18, 3, 0, 4, 4, "#fbcfe8");
-        addPlatform(24, 4, 0, 6, 6, "#ddd6fe");
-        // Cute trees
-        for (let i = 0; i < 6; i++) {
-          const trunk = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.2, 0.3, 1.2, 8),
-            new THREE.MeshStandardMaterial({ color: "#92400e" }),
-          );
-          const leaves = new THREE.Mesh(
-            new THREE.ConeGeometry(0.8, 1.6, 8),
-            new THREE.MeshStandardMaterial({ color: "#16a34a" }),
-          );
-          trunk.position.set(-4 + i * 6, 0.9, -3);
-          leaves.position.set(-4 + i * 6, 2.2, -3);
-          if (level === "LEVEL_2" && Math.random() > 0.5) {
-            leaves.material.color.setHex(0x000000); // Glitchy trees
-            trunk.material.color.setHex(0x1a1a1a);
-          }
-          scene.add(trunk, leaves);
-        }
-      } else if (level === "LEVEL_3") {
-        scene.background = new THREE.Color("#1a1a1a");
-        scene.fog = new THREE.FogExp2(0x1a1a1a, 0.05);
-        ambient.intensity = 0.3;
-        dir.intensity = 0.4;
-        const cols = ["#3f3f46", "#27272a", "#52525b", "#18181b"];
-        for (let i = 0; i < 7; i++) {
-          addPlatform(i * 5, i % 2, 0, 3.5, 3.5, cols[i % cols.length]);
-        }
-        // Spikes
-        for (let i = 1; i < 6; i++) {
-          const spike = new THREE.Mesh(
-            new THREE.ConeGeometry(0.4, 1.2, 6),
-            new THREE.MeshStandardMaterial({ color: "#7f1d1d" }),
-          );
-          spike.position.set(
-            i * 5 + (Math.random() - 0.5),
-            (i % 2) + 0.9,
-            (Math.random() - 0.5) * 2,
-          );
-          spike.userData.spike = true;
-          scene.add(spike);
-          spikes.push(spike);
-        }
-      } else if (level === "LEVEL_4") {
-        scene.background = new THREE.Color("#0f172a"); // Dark slate
-        scene.fog = new THREE.FogExp2(0x0f172a, 0.04);
-        ambient.intensity = 0.4;
-        dir.intensity = 0.5;
-        // Weird platforms
-        for (let i = 0; i < 8; i++) {
-          addPlatform(i * 4, i * 0.5, Math.sin(i) * 2, 3, 3, "#334155");
-        }
-        // Big floating eyes
-        for (let i = 0; i < 15; i++) {
-          const sclera = new THREE.Mesh(
-            new THREE.SphereGeometry(1.5, 16, 16),
-            new THREE.MeshStandardMaterial({ color: 0xffffff })
-          );
-          const pupil = new THREE.Mesh(
-            new THREE.SphereGeometry(0.4, 16, 16),
-            new THREE.MeshBasicMaterial({ color: 0x000000 })
-          );
-          pupil.position.z = 1.3;
-          sclera.add(pupil);
-          sclera.position.set(Math.random() * 30, 4 + Math.random() * 10, -10 + Math.random() * 20);
-          sclera.userData.isEye = true;
-          scene.add(sclera);
-          eyes.push(sclera);
-        }
-      } else {
-        scene.background = new THREE.Color("#1a0000");
-        scene.fog = new THREE.FogExp2(0x1a0000, 0.08);
-        ambient.color = new THREE.Color("#dc2626");
-        ambient.intensity = 0.6;
-        dir.color = new THREE.Color("#ef4444");
-        dir.intensity = 0.5;
-        for (let i = 0; i < 10; i++) {
-          addPlatform(i * 4, Math.sin(i) * 2, 0, 2.5, 2.5, "#450a0a");
-        }
-        // Wall of spikes
-        for (let i = 0; i < 30; i++) {
-          const spike = new THREE.Mesh(
-            new THREE.ConeGeometry(0.3, 1.4, 6),
-            new THREE.MeshStandardMaterial({ color: "#b91c1c" }),
-          );
-          spike.position.set(Math.random() * 40, Math.random() * 3, (Math.random() - 0.5) * 4);
-          spike.userData.spike = true;
-          scene.add(spike);
-          spikes.push(spike);
-        }
-      }
-    };
 
     // Stars
     const stars: THREE.Mesh[] = [];
     const spikes: THREE.Mesh[] = [];
     const eyes: THREE.Mesh[] = [];
+
+    // Build layout
+    buildLevel(stateRef.current, scene, ambient, dir, platforms, spikes, eyes);
 
     const addStars = (positions: [number, number, number][]) => {
       positions.forEach(([x, y, z]) => {
@@ -239,7 +123,6 @@ function Game() {
       });
     };
 
-    buildLevel(stateRef.current);
     if (stateRef.current === "LEVEL_1" || stateRef.current === "LEVEL_2") {
       addStars([
         [0, 2, 0],
@@ -629,39 +512,6 @@ function Game() {
     }
   }, [state]);
 
-  // ---- Survey typewriter for Q4 ----
-  useEffect(() => {
-    if (surveyPage !== 4) return;
-    // ============================================================
-    // Drop-in: external IP geolocation API can be wired here.
-    // Example: fetch('https://ipapi.co/json').then(r => r.json()).then(d => setCity(d.city))
-    // ============================================================
-    const playerCity = "your city"; // <-- replace with fetched city
-    const os = detectOS();
-    const fullText = `Are you comfortable sitting in ${playerCity} right now behind your ${os} system? Look behind you.`;
-    let i = 0;
-    setQ4Text("");
-    const interval = window.setInterval(() => {
-      i++;
-      setQ4Text(fullText.slice(0, i));
-      if (i >= fullText.length) {
-        window.clearInterval(interval);
-        // 2 seconds after typewriter completes -> final scare
-        window.setTimeout(() => {
-          setCollapse(true);
-          if (typeof window.triggerFinalAudioScare === "function") {
-            try {
-              window.triggerFinalAudioScare();
-            } catch {
-              /* noop */
-            }
-          }
-        }, 2000);
-      }
-    }, 55);
-    return () => window.clearInterval(interval);
-  }, [surveyPage]);
-
   // ---- Global hook for audio scare ----
   useEffect(() => {
     window.triggerFinalAudioScare = () => {
@@ -716,110 +566,18 @@ function Game() {
 
       {/* Survey phase */}
       {state === "SURVEY" && (
-        <div className="absolute inset-0 z-30 flex items-center justify-center bg-slate-100 p-6">
-          <div className="w-full max-w-2xl rounded-xl border border-slate-300 bg-white p-8 shadow-2xl">
-            <div className="mb-6 border-b border-slate-200 pb-4">
-              <h1 className="text-2xl font-semibold text-slate-800">
-                Alpha Test Evaluation Questionnaire
-              </h1>
-              <p className="mt-1 text-sm text-slate-500">
-                Thank you for participating. Your feedback helps us improve our product.
-              </p>
-            </div>
-
-            <form className="space-y-6" onSubmit={(e) => e.preventDefault()}>
-              {/* Q1 */}
-              {surveyPage === 1 && (
-                <fieldset>
-                  <legend className="mb-2 font-medium text-slate-700">
-                    1. Rate the 3D physics responsiveness
-                  </legend>
-                  <div className="flex gap-4 text-sm text-slate-600">
-                    {["Excellent", "Stable", "Poor"].map((opt) => (
-                      <label key={opt} className="flex items-center gap-2">
-                        <input type="radio" name="q1" value={opt} onClick={() => setTimeout(() => setSurveyPage(2), 300)} />
-                        {opt}
-                      </label>
-                    ))}
-                  </div>
-                </fieldset>
-              )}
-
-              {/* Q2 */}
-              {surveyPage === 2 && (
-                <fieldset>
-                  <legend className="mb-2 font-medium text-slate-700">
-                    2. Which assets did you find most appealing?
-                  </legend>
-                  <div className="flex flex-col gap-2 text-sm text-slate-600">
-                    {["Character Models", "3D Environments", "Lighting Effects"].map((opt) => (
-                      <label key={opt} className="flex items-center gap-2">
-                        <input type="checkbox" name="q2" value={opt} />
-                        {opt}
-                      </label>
-                    ))}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setSurveyPage(3)}
-                    className="mt-6 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white"
-                  >
-                    Next
-                  </button>
-                </fieldset>
-              )}
-
-              {/* Q3 */}
-              {surveyPage === 3 && (
-                <fieldset>
-                  <legend className="mb-2 font-medium text-slate-700">
-                    3. Are you currently alone in the room?
-                  </legend>
-                  <div className="flex gap-4 text-sm text-slate-600">
-                    {["Yes", "No"].map((opt) => (
-                      <label key={opt} className="flex items-center gap-2">
-                        <input
-                          type="radio"
-                          name="q3"
-                          value={opt}
-                          onChange={() => {
-                            setQ3Answered(true);
-                            setTimeout(() => setSurveyPage(4), 500);
-                          }}
-                        />
-                        {opt}
-                      </label>
-                    ))}
-                  </div>
-                </fieldset>
-              )}
-
-              {/* Q4 */}
-              {surveyPage === 4 && (
-                <fieldset>
-                  <legend className="mb-2 font-medium text-slate-700">4. Additional comments</legend>
-                  <textarea
-                    readOnly
-                    value={q4Text}
-                    rows={4}
-                    className="w-full resize-none rounded-md border border-slate-300 bg-slate-50 p-3 font-mono text-sm text-slate-800"
-                    placeholder="Awaiting question..."
-                  />
-                </fieldset>
-              )}
-
-              {surveyPage === 4 && (
-                <button
-                  type="submit"
-                  disabled
-                  className="mt-4 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white opacity-60"
-                >
-                  Submit Evaluation
-                </button>
-              )}
-            </form>
-          </div>
-        </div>
+        <Survey
+          onComplete={() => {
+            setCollapse(true);
+            if (typeof window.triggerFinalAudioScare === "function") {
+              try {
+                window.triggerFinalAudioScare();
+              } catch {
+                /* noop */
+              }
+            }
+          }}
+        />
       )}
 
       {/* Local styles for shake + collapse */}
